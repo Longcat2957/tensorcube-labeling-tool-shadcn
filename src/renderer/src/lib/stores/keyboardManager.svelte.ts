@@ -10,10 +10,12 @@ export type KeyboardAction =
   | 'next-image' // D - 다음 이미지
   | 'select-tool' // V - 선택 도구
   | 'box-tool' // B - 박스 생성 도구
+  | 'pan-tool' // P - 패닝 도구
   | 'undo' // Ctrl+Z - 실행 취소
   | 'redo' // Ctrl+Y - 다시 실행
   | 'delete' // Delete - 선택된 라벨 삭제
   | 'toggle-labels' // H - 라벨 숨기기/보기
+  | 'center-image' // C - 이미지 중앙 정렬
   | 'next-mode' // Tab - 다음 모드
   | 'prev-mode'; // Shift+Tab - 이전 모드
 
@@ -23,10 +25,12 @@ export const ACTION_DESCRIPTIONS: Record<string, string> = {
   'next-image': '다음 이미지',
   'select-tool': '선택 도구',
   'box-tool': '박스 생성 도구',
+  'pan-tool': '이동 도구',
   'undo': '실행 취소',
   'redo': '다시 실행',
   'delete': '선택된 라벨 삭제',
   'toggle-labels': '라벨 보기/숨기기',
+  'center-image': '이미지 중앙 정렬',
   'next-mode': '다음 모드',
   'prev-mode': '이전 모드',
 };
@@ -49,6 +53,10 @@ const KEY_BINDINGS: Record<string, KeyboardAction> = {
   V: 'select-tool',
   b: 'box-tool',
   B: 'box-tool',
+  p: 'pan-tool',
+  P: 'pan-tool',
+  c: 'center-image',
+  C: 'center-image',
   Delete: 'delete',
   Backspace: 'delete',
   h: 'toggle-labels',

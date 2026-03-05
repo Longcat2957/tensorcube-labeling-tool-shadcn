@@ -3,9 +3,11 @@
   import { Canvas, FabricImage } from "fabric";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
   import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
+  import { KEYBOARD_MANAGER_KEY, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
   const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
+  const keyboardManager = getContext<KeyboardManager>(KEYBOARD_MANAGER_KEY);
 
   let canvasEl: HTMLCanvasElement;
   let canvasContainer: HTMLDivElement;
@@ -17,6 +19,13 @@
   const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 5.0;
   const ZOOM_STEP = 0.1;
+
+  // 패닝 상태
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let imgStartLeft = 0;
+  let imgStartTop = 0;
 
   /**
    * 스크린 좌표를 원본 이미지 픽셀 좌표로 변환
@@ -57,8 +66,14 @@
 
     switch (toolManager.currentTool) {
       case 'select':
-        // TODO: 객체 선택 로직
-        console.log('Select tool: 클릭 위치에서 객체 선택 시도');
+        // select 도구에서도 패닝 동작 (기본 동작)
+        isPanning = true;
+        panStartX = pointer.x;
+        panStartY = pointer.y;
+        imgStartLeft = currentImageObject.left || 0;
+        imgStartTop = currentImageObject.top || 0;
+        fabricCanvas.defaultCursor = 'grabbing';
+        fabricCanvas.hoverCursor = 'grabbing';
         break;
       
       case 'box':
@@ -68,8 +83,14 @@
         break;
       
       case 'pan':
-        // TODO: 패닝 시작
-        console.log('Pan tool: 패닝 시작');
+        // 패닝 시작
+        isPanning = true;
+        panStartX = pointer.x;
+        panStartY = pointer.y;
+        imgStartLeft = currentImageObject.left || 0;
+        imgStartTop = currentImageObject.top || 0;
+        fabricCanvas.defaultCursor = 'grabbing';
+        fabricCanvas.hoverCursor = 'grabbing';
         break;
     }
   }
@@ -87,6 +108,21 @@
     // 현재 마우스 위치 업데이트 (toolManager에 저장 - Footer에서 사용)
     toolManager.updateMousePosition(imageCoords.x, imageCoords.y);
 
+    // 패닝 중이면 이미지 이동
+    if (isPanning) {
+      const deltaX = pointer.x - panStartX;
+      const deltaY = pointer.y - panStartY;
+      
+      currentImageObject.set({
+        left: imgStartLeft + deltaX,
+        top: imgStartTop + deltaY,
+      });
+      
+      updateViewportState();
+      fabricCanvas.requestRenderAll();
+      return;
+    }
+
     // 드로잉 중이면 좌표 업데이트
     if (toolManager.isDrawing) {
       toolManager.updateDrawing(imageCoords);
@@ -98,6 +134,20 @@
    */
   function handleMouseUp(): void {
     if (!fabricCanvas || !currentImageObject) return;
+
+    // 패닝 종료
+    if (isPanning) {
+      isPanning = false;
+      // pan 도구일 때 커서 복원
+      if (toolManager.currentTool === 'pan') {
+        fabricCanvas.defaultCursor = 'grab';
+        fabricCanvas.hoverCursor = 'grab';
+      } else {
+        fabricCanvas.defaultCursor = 'default';
+        fabricCanvas.hoverCursor = 'default';
+      }
+      return;
+    }
 
     if (toolManager.isDrawing) {
       const result = toolManager.endDrawing();
@@ -125,6 +175,7 @@
 
     fabricCanvas = new Canvas(canvasEl, {
       backgroundColor: "#2a2a2a",
+      selection: false,  // 드래그 선택 박스 비활성화
     });
 
     fabricCanvas.setDimensions({ width, height });
@@ -338,10 +389,41 @@
   // 리사이즈 옵저버
   let resizeObserver: ResizeObserver | null = null;
 
+  // 키보드 핸들러 클린업 함수들
+  let cleanupHandlers: (() => void)[] = [];
+
+  /**
+   * 도구 변경 시 커서 업데이트
+   */
+  function updateCursor(): void {
+    if (!fabricCanvas) return;
+    
+    switch (toolManager.currentTool) {
+      case 'pan':
+        fabricCanvas.defaultCursor = 'grab';
+        fabricCanvas.hoverCursor = 'grab';
+        break;
+      case 'box':
+        fabricCanvas.defaultCursor = 'crosshair';
+        fabricCanvas.hoverCursor = 'crosshair';
+        break;
+      default:
+        fabricCanvas.defaultCursor = 'default';
+        fabricCanvas.hoverCursor = 'default';
+    }
+  }
+
   // 현재 이미지 변경 감지
   $effect(() => {
     if (workspaceManager.currentImage && fabricCanvas && isInitialized) {
       loadImage();
+    }
+  });
+
+  // 도구 변경 시 커서 업데이트
+  $effect(() => {
+    if (fabricCanvas && isInitialized) {
+      updateCursor();
     }
   });
 
@@ -358,6 +440,26 @@
       resizeObserver.observe(canvasContainer);
     }
 
+    // 키보드 단축키 핸들러 등록
+    // C 키: 이미지 중앙 정렬
+    cleanupHandlers.push(
+      keyboardManager.onAction('center-image', () => {
+        if (currentImageObject && fabricCanvas) {
+          fitImageToCanvas();
+          fabricCanvas.requestRenderAll();
+          console.log('Image centered');
+        }
+      })
+    );
+
+    // P 키: 패닝 도구 선택
+    cleanupHandlers.push(
+      keyboardManager.onAction('pan-tool', () => {
+        toolManager.setTool('pan');
+        console.log('Pan tool selected');
+      })
+    );
+
     // 워크스페이스가 열려있으면 이미지 로드
     if (workspaceManager.currentImage) {
       await loadImage();
@@ -366,6 +468,11 @@
 
   onDestroy(() => {
     console.log("CanvasArea destroyed");
+    
+    // 키보드 핸들러 클린업
+    cleanupHandlers.forEach(cleanup => cleanup());
+    cleanupHandlers = [];
+    
     if (resizeObserver) {
       resizeObserver.disconnect();
     }
