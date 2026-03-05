@@ -1,11 +1,15 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { getContext } from "svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { FolderOpen, FileJson } from "@lucide/svelte";
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
 
   let { children }: { children: Snippet } = $props();
+
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
   let open = $state(false);
   let workspacePath = $state("");
@@ -15,22 +19,40 @@
     imageCount: number;
     lastModified: string;
   } | null>(null);
+  let isLoading = $state(false);
 
-  function selectWorkspace() {
-    // TODO: Electron IPC로 폴더 선택 다이얼로그 호출
-    workspacePath = "/selected/workspace/path";
-    // TODO: workspace.yaml 파싱하여 정보 표시
-    workspaceInfo = {
-      name: "Example Workspace",
-      labelingType: "OBB",
-      imageCount: 5000,
-      lastModified: "2024-01-15",
-    };
+  async function selectWorkspace() {
+    const selectedPath = await window.api.dialog.selectWorkspaceFolder();
+    if (selectedPath) {
+      workspacePath = selectedPath;
+      // workspace.yaml에서 정보 로드
+      const info = await window.api.workspace.getInfo(selectedPath);
+      if (info) {
+        workspaceInfo = info;
+      } else {
+        workspaceInfo = null;
+      }
+    }
   }
 
-  function handleOpen() {
-    // TODO: 워크스페이스 열기 로직
+  async function handleOpen() {
+    if (!workspacePath) return;
+    
+    isLoading = true;
+    const success = await workspaceManager.openWorkspace(workspacePath);
+    isLoading = false;
+    
+    if (success) {
+      open = false;
+      workspacePath = "";
+      workspaceInfo = null;
+    }
+  }
+
+  function handleCancel() {
     open = false;
+    workspacePath = "";
+    workspaceInfo = null;
   }
 </script>
 
@@ -88,8 +110,10 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => (open = false)}>취소</Button>
-      <Button onclick={handleOpen} disabled={!workspaceInfo}>열기</Button>
+      <Button variant="outline" onclick={handleCancel}>취소</Button>
+      <Button onclick={handleOpen} disabled={!workspaceInfo || isLoading}>
+        {isLoading ? '로딩 중...' : '열기'}
+      </Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

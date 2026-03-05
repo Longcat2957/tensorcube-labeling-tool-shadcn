@@ -1,13 +1,18 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { getContext } from "svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group/index.js";
   import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
   import { FolderOpen, Plus, Trash2 } from "@lucide/svelte";
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import { toast } from "svelte-sonner";
 
   let { children }: { children: Snippet } = $props();
+
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
   let open = $state(false);
   let workspaceName = $state("");
@@ -17,6 +22,7 @@
   let labelingType = $state("1");
   let classes = $state([{ id: 0, name: "" }]);
   let nextClassId = $state(1);
+  let isCreating = $state(false);
 
   function addClass() {
     classes = [...classes, { id: nextClassId, name: "" }];
@@ -29,25 +35,80 @@
     }
   }
 
-  function addSourceFolder() {
-    // TODO: Electron IPC로 폴더 선택 다이얼로그 호출
-    const mockPath = `/selected/folder/path/${nextSourceFolderId}`;
-    sourceFolders = [...sourceFolders, { id: nextSourceFolderId, path: mockPath }];
-    nextSourceFolderId++;
+  async function addSourceFolder() {
+    const selectedPath = await window.api.dialog.selectFolder();
+    if (selectedPath) {
+      sourceFolders = [...sourceFolders, { id: nextSourceFolderId, path: selectedPath }];
+      nextSourceFolderId++;
+    }
   }
 
   function removeSourceFolder(id: number) {
     sourceFolders = sourceFolders.filter((f) => f.id !== id);
   }
 
-  function selectSavePath() {
-    // TODO: Electron IPC로 폴더 선택 다이얼로그 호출
-    savePath = "/selected/save/path";
+  async function selectSavePath() {
+    const selectedPath = await window.api.dialog.selectFolder();
+    if (selectedPath) {
+      savePath = selectedPath;
+    }
   }
 
-  function handleCreate() {
-    // TODO: 프로젝트 생성 로직
+  async function handleCreate() {
+    // 유효성 검사
+    if (!workspaceName.trim()) {
+      toast.error("워크스페이스 이름을 입력하세요.");
+      return;
+    }
+    if (sourceFolders.length === 0) {
+      toast.error("원천데이터 폴더를 선택하세요.");
+      return;
+    }
+    if (!savePath) {
+      toast.error("프로젝트 저장 경로를 선택하세요.");
+      return;
+    }
+    if (classes.some((c) => !c.name.trim())) {
+      toast.error("모든 클래스 이름을 입력하세요.");
+      return;
+    }
+
+    isCreating = true;
+
+    const result = await window.api.workspace.create({
+      name: workspaceName.trim(),
+      sourceFolders: sourceFolders.map((f) => f.path),
+      savePath,
+      labelingType: parseInt(labelingType) as 1 | 2,
+      classes: classes.map((c) => ({ id: c.id, name: c.name.trim() }))
+    });
+
+    isCreating = false;
+
+    if (result.success && result.path) {
+      toast.success("워크스페이스가 생성되었습니다.");
+      open = false;
+      resetForm();
+      // 생성된 워크스페이스 열기
+      await workspaceManager.openWorkspace(result.path);
+    } else {
+      toast.error(result.error || "워크스페이스 생성에 실패했습니다.");
+    }
+  }
+
+  function resetForm() {
+    workspaceName = "";
+    sourceFolders = [];
+    nextSourceFolderId = 1;
+    savePath = "";
+    labelingType = "1";
+    classes = [{ id: 0, name: "" }];
+    nextClassId = 1;
+  }
+
+  function handleCancel() {
     open = false;
+    resetForm();
   }
 </script>
 
@@ -182,8 +243,10 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => {}}>취소</Button>
-      <Button onclick={handleCreate}>생성</Button>
+      <Button variant="outline" onclick={handleCancel} disabled={isCreating}>취소</Button>
+      <Button onclick={handleCreate} disabled={isCreating}>
+        {isCreating ? '생성 중...' : '생성'}
+      </Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

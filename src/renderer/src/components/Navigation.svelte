@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs/index.js";
   import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "$lib/components/ui/dropdown-menu/index.js";
@@ -6,6 +7,11 @@
   import CreateProjectDialog from "./dialogs/CreateProjectDialog.svelte";
   import OpenWorkspaceDialog from "./dialogs/OpenWorkspaceDialog.svelte";
   import ExportDialog from "./dialogs/ExportDialog.svelte";
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
+
+  let currentMode = $state('edit');
 </script>
 
 <header class="h-14 border-b flex items-center px-4 justify-between">
@@ -38,11 +44,13 @@
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    <div class="font-semibold text-sm">Example Workspace</div>
+    <div class="font-semibold text-sm">
+      {workspaceManager.workspaceConfig?.workspace ?? '워크스페이스 없음'}
+    </div>
   </div>
 
   <div class="flex items-center gap-4">
-    <Tabs value="edit">
+    <Tabs bind:value={currentMode}>
       <TabsList>
         <TabsTrigger value="edit">Edit</TabsTrigger>
         <TabsTrigger value="check">Check</TabsTrigger>
