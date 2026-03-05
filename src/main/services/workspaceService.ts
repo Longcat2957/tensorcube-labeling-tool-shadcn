@@ -9,7 +9,8 @@ import {
   writeJsonFile,
   readJsonFile,
   copyImageWithRename,
-  getCurrentDateString
+  getCurrentDateString,
+  getImageDimensions
 } from './fileService.js';
 import type {
   WorkspaceConfig,
@@ -50,12 +51,26 @@ export async function createWorkspace(
       allImages = allImages.concat(images);
     }
 
-    // 이미지 파일 복사 및 이름 변경
+    // 이미지 파일 복사 및 이름 변경 (실제 파일명과 크기 저장)
     let imageCount = 0;
+    const imageData: { id: string; filename: string; width: number; height: number }[] = [];
+
     for (let i = 0; i < allImages.length; i++) {
       const srcPath = allImages[i];
       const destDir = join(workspacePath, SRC_DIR);
-      await copyImageWithRename(srcPath, destDir, i + 1);
+      const { newFilename, destPath } = await copyImageWithRename(srcPath, destDir, i + 1);
+
+      // 이미지 크기 조회
+      const dimensions = await getImageDimensions(destPath);
+
+      const id = String(i + 1).padStart(9, '0');
+      imageData.push({
+        id,
+        filename: newFilename,
+        width: dimensions.width,
+        height: dimensions.height
+      });
+
       imageCount++;
     }
 
@@ -77,11 +92,18 @@ export async function createWorkspace(
 
     await writeYamlFile(join(workspacePath, WORKSPACE_FILE), config as unknown as Record<string, unknown>);
 
-    // 빈 라벨 파일들 생성
-    for (let i = 1; i <= imageCount; i++) {
-      const id = String(i).padStart(9, '0');
-      const labelPath = join(workspacePath, LABEL_DIR, `${id}.json`);
-      await writeJsonFile(labelPath, null);
+    // 빈 라벨 파일들 생성 (실제 이미지 크기 포함)
+    for (const img of imageData) {
+      const labelPath = join(workspacePath, LABEL_DIR, `${img.id}.json`);
+      const emptyLabelData: LabelData = {
+        image_info: {
+          filename: img.filename,
+          width: img.width,
+          height: img.height
+        },
+        annotations: []
+      };
+      await writeJsonFile(labelPath, emptyLabelData);
     }
 
     return { success: true, path: workspacePath };
@@ -168,12 +190,16 @@ export async function getImageList(workspacePath: string): Promise<ImageInfo[]> 
       status = 'working';
     }
 
-    // 이미지 크기 가져오기는 실제 로드 시 처리
+    // 라벨 파일에서 이미지 크기 가져오기
+    const labelData = await readLabelData(workspacePath, id);
+    const width = labelData?.image_info?.width || 0;
+    const height = labelData?.image_info?.height || 0;
+
     imageList.push({
       id,
       filename: file,
-      width: 0,
-      height: 0,
+      width,
+      height,
       status
     });
   }

@@ -1,4 +1,37 @@
-// Types are globally available via preload/index.d.ts
+// Types
+interface WorkspaceConfig {
+  workspace: string;
+  labeling_type: 1 | 2;
+  names: Record<number, string>;
+  image_count: number;
+  created_at: string;
+  last_modified_at: string;
+}
+
+interface WorkspaceInfo {
+  name: string;
+  labelingType: string;
+  imageCount: number;
+  lastModified: string;
+  path: string;
+}
+
+interface ImageInfo {
+  id: string;
+  filename: string;
+  width: number;
+  height: number;
+  status: 'none' | 'working' | 'completed';
+}
+
+interface LabelData {
+  image_info: {
+    filename: string;
+    width: number;
+    height: number;
+  };
+  annotations: { id: string; class_id: number }[];
+}
 
 // 워크스페이스 상태
 let workspacePath = $state<string | null>(null);
@@ -7,11 +40,42 @@ let workspaceInfo = $state<WorkspaceInfo | null>(null);
 let imageList = $state<ImageInfo[]>([]);
 let currentImageIndex = $state<number>(-1);
 let currentLabelData = $state<LabelData | null>(null);
+let selectedClassId = $state<number>(0);
 
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null);
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null);
-const classes = $derived(workspaceConfig?.names ?? {});
+
+// 클래스 리스트 (UI용으로 변환)
+const classList = $derived(() => {
+  if (!workspaceConfig?.names) return [];
+  return Object.entries(workspaceConfig.names).map(([id, name]) => ({
+    id: parseInt(id),
+    name,
+    color: getClassColor(parseInt(id))
+  }));
+});
+
+// 현재 이미지의 라벨 리스트
+const currentLabels = $derived(() => {
+  if (!currentLabelData?.annotations) return [];
+  return currentLabelData.annotations.map((ann, index) => ({
+    id: ann.id || `label-${index}`,
+    classId: ann.class_id,
+    className: workspaceConfig?.names?.[ann.class_id] ?? `Class ${ann.class_id}`,
+    color: getClassColor(ann.class_id),
+    visible: true
+  }));
+});
+
+// 클래스별 색상 반환
+function getClassColor(classId: number): string {
+  const colors = [
+    '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+  ];
+  return colors[classId % colors.length];
+}
 
 // 워크스페이스 열기
 async function openWorkspace(path: string): Promise<boolean> {
@@ -105,6 +169,11 @@ function updateWorkspaceConfig(config: WorkspaceConfig): void {
 // Context key
 export const WORKSPACE_MANAGER_KEY = Symbol('workspaceManager');
 
+// 선택된 클래스 ID 설정
+function setSelectedClassId(id: number): void {
+  selectedClassId = id;
+}
+
 // Store export
 export function createWorkspaceManager() {
   return {
@@ -117,7 +186,9 @@ export function createWorkspaceManager() {
     get currentLabelData() { return currentLabelData; },
     get isWorkspaceOpen() { return isWorkspaceOpen; },
     get currentImage() { return currentImage; },
-    get classes() { return classes; },
+    get classList() { return classList(); },
+    get currentLabels() { return currentLabels(); },
+    get selectedClassId() { return selectedClassId; },
     
     // 메서드
     openWorkspace,
@@ -127,7 +198,8 @@ export function createWorkspaceManager() {
     prevImage,
     saveLabel,
     updateWorkspaceConfig,
-    loadCurrentImageLabel
+    loadCurrentImageLabel,
+    setSelectedClassId
   };
 }
 

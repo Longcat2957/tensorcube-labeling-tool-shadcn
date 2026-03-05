@@ -2,6 +2,7 @@ import { readdir, stat, mkdir, writeFile, readFile, copyFile } from 'fs/promises
 import { existsSync } from 'fs';
 import { join, extname } from 'path';
 import { createHash } from 'crypto';
+import sharp from 'sharp';
 
 const SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.webp'];
 
@@ -179,4 +180,19 @@ export function getCurrentDateString(): string {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// 이미지 크기 조회 (width, height)
+export async function getImageDimensions(
+  imagePath: string
+): Promise<{ width: number; height: number }> {
+  try {
+    const metadata = await sharp(imagePath).metadata();
+    return {
+      width: metadata.width || 0,
+      height: metadata.height || 0
+    };
+  } catch {
+    return { width: 0, height: 0 };
+  }
 }
