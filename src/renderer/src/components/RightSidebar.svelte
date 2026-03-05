@@ -8,6 +8,7 @@
   import { Kbd } from "$lib/components/ui/kbd/index.js";
   import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import Minimap from "./Minimap.svelte";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
@@ -27,13 +28,7 @@
 <aside class="h-full border-l flex flex-col" aria-label="인스펙터 패널">
   <Resizable.PaneGroup direction="vertical" class="h-full">
     <Resizable.Pane defaultSize={30} minSize={10}>
-      <div 
-        class="h-full bg-background p-2 flex items-center justify-center text-muted-foreground text-xs"
-        role="img"
-        aria-label="미니맵"
-      >
-        Minimap Placeholder
-      </div>
+      <Minimap />
     </Resizable.Pane>
     <Resizable.Handle />
     <Resizable.Pane>

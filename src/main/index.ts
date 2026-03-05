@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, protocol } from 'electron'
 import { join } from 'path'
+import { readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerDialogHandlers } from './ipc/dialogHandler.js'
@@ -38,12 +39,41 @@ function createWindow(): void {
   }
 }
 
+// Register custom protocol for loading workspace images
+function registerWorkspaceProtocol(): void {
+  protocol.handle('workspace', async (request) => {
+    try {
+      // URL format: workspace://path/to/image.jpg
+      const filePath = decodeURIComponent(request.url.slice('workspace://'.length))
+      const data = await readFile(filePath)
+      const ext = filePath.toLowerCase().split('.').pop() || 'jpg'
+      const mimeTypes: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        bmp: 'image/bmp'
+      }
+      const mimeType = mimeTypes[ext] || 'image/jpeg'
+      return new Response(data, {
+        headers: { 'Content-Type': mimeType }
+      })
+    } catch (error) {
+      return new Response('File not found', { status: 404 })
+    }
+  })
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
+
+  // Register custom protocol for workspace images
+  registerWorkspaceProtocol()
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

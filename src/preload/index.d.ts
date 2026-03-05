@@ -32,10 +32,15 @@ export interface LabelApi {
   getImagePath: (workspacePath: string, imageId: string) => Promise<string | null>
 }
 
+export interface UtilsApi {
+  getWorkspaceImageUrl: (absolutePath: string) => string
+}
+
 export interface Api {
   dialog: DialogApi
   workspace: WorkspaceApi
   label: LabelApi
+  utils: UtilsApi
 }
 
 // Types from main process

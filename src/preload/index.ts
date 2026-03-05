@@ -36,11 +36,20 @@ const label = {
     ipcRenderer.invoke('label:getImagePath', workspacePath, imageId)
 }
 
+// Utility functions
+const utils = {
+  // workspace:// 프로토콜 URL 생성
+  getWorkspaceImageUrl: (absolutePath: string): string => {
+    return `workspace://${absolutePath}`
+  }
+}
+
 // Custom APIs for renderer
 const api = {
   dialog,
   workspace,
-  label
+  label,
+  utils
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

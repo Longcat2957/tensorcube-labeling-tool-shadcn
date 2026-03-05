@@ -42,6 +42,15 @@ let currentImageIndex = $state<number>(-1);
 let currentLabelData = $state<LabelData | null>(null);
 let selectedClassId = $state<number>(0);
 
+// 캔버스 상태
+let zoomLevel = $state<number>(1.0);
+let viewportX = $state<number>(0);
+let viewportY = $state<number>(0);
+let canvasWidth = $state<number>(0);
+let canvasHeight = $state<number>(0);
+let imageWidth = $state<number>(0);
+let imageHeight = $state<number>(0);
+
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null);
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null);
@@ -174,6 +183,32 @@ function setSelectedClassId(id: number): void {
   selectedClassId = id;
 }
 
+// 캔버스 상태 관리
+function setZoomLevel(level: number): void {
+  zoomLevel = Math.max(0.1, Math.min(5, level));
+}
+
+function setViewport(x: number, y: number): void {
+  viewportX = x;
+  viewportY = y;
+}
+
+function setCanvasSize(width: number, height: number): void {
+  canvasWidth = width;
+  canvasHeight = height;
+}
+
+function setImageSize(width: number, height: number): void {
+  imageWidth = width;
+  imageHeight = height;
+}
+
+function resetCanvasState(): void {
+  zoomLevel = 1.0;
+  viewportX = 0;
+  viewportY = 0;
+}
+
 // Store export
 export function createWorkspaceManager() {
   return {
@@ -190,6 +225,15 @@ export function createWorkspaceManager() {
     get currentLabels() { return currentLabels(); },
     get selectedClassId() { return selectedClassId; },
     
+    // 캔버스 상태
+    get zoomLevel() { return zoomLevel; },
+    get viewportX() { return viewportX; },
+    get viewportY() { return viewportY; },
+    get canvasWidth() { return canvasWidth; },
+    get canvasHeight() { return canvasHeight; },
+    get imageWidth() { return imageWidth; },
+    get imageHeight() { return imageHeight; },
+    
     // 메서드
     openWorkspace,
     closeWorkspace,
@@ -199,7 +243,14 @@ export function createWorkspaceManager() {
     saveLabel,
     updateWorkspaceConfig,
     loadCurrentImageLabel,
-    setSelectedClassId
+    setSelectedClassId,
+    
+    // 캔버스 메서드
+    setZoomLevel,
+    setViewport,
+    setCanvasSize,
+    setImageSize,
+    resetCanvasState
   };
 }
 
