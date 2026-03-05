@@ -10,6 +10,7 @@
   import * as Resizable from "$lib/components/ui/resizable/index.js";
   import { createKeyboardManager, KEYBOARD_MANAGER_KEY } from "$lib/stores/keyboardManager.svelte.js";
   import { createWorkspaceManager, WORKSPACE_MANAGER_KEY } from "$lib/stores/workspace.svelte.js";
+  import { createToolManager, TOOL_MANAGER_KEY } from "$lib/stores/toolManager.svelte.js";
 
   // 키보드 매니저 생성 및 Context 제공
   const keyboardManager = createKeyboardManager();
@@ -18,6 +19,10 @@
   // 워크스페이스 매니저 생성 및 Context 제공
   const workspaceManager = createWorkspaceManager();
   setContext(WORKSPACE_MANAGER_KEY, workspaceManager);
+
+  // 도구 매니저 생성 및 Context 제공
+  const toolManager = createToolManager();
+  setContext(TOOL_MANAGER_KEY, toolManager);
 
   // 워크스페이스가 없으면 다이얼로그 표시
   let showOpenDialog = $state(!workspaceManager.isWorkspaceOpen);

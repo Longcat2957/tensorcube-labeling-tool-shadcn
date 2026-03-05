@@ -2,10 +2,12 @@
   import { getContext } from "svelte";
   import { KEYBOARD_MANAGER_KEY, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
 
-  // 키보드 매니저 Context 가져오기
+  // Context 가져오기
   const keyboardManager = getContext<KeyboardManager>(KEYBOARD_MANAGER_KEY);
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
+  const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
 
   // 상태 구독
   let debugInfo = $derived(() => {
@@ -29,6 +31,11 @@
 
   // 상태 메시지
   let statusMessage = $state('준비');
+
+  // 줌 퍼센트 계산
+  let zoomPercent = $derived(() => {
+    return Math.round(workspaceManager.zoomLevel * 100);
+  });
 </script>
 
 <footer class="h-8 border-t flex items-center justify-between px-4 text-xs text-muted-foreground" aria-label="상태 표시줄">
@@ -44,7 +51,7 @@
         {debugInfo()}
       </span>
     {/if}
-    <span>X: -, Y: -</span>
-    <span>Zoom: 100%</span>
+    <span>X: {toolManager.mouseX}, Y: {toolManager.mouseY}</span>
+    <span>Zoom: {zoomPercent()}%</span>
   </div>
 </footer>

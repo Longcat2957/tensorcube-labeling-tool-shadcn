@@ -3,13 +3,11 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { ArrowLeft, ArrowRight, MousePointer2, Square, Undo, Redo, Trash2 } from "@lucide/svelte";
   import { KEYBOARD_MANAGER_KEY, type KeyboardAction, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
+  import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
 
-  // 키보드 매니저 Context 가져오기
+  // Context 가져오기
   const keyboardManager = getContext<KeyboardManager>(KEYBOARD_MANAGER_KEY);
-
-  // 현재 선택된 도구 상태
-  type ToolType = "select" | "box";
-  let currentTool = $state<ToolType>("select");
+  const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
 
   // 단축키 액션 핸들러
   function handlePrevImage() {
@@ -23,12 +21,12 @@
   }
 
   function handleSelectTool() {
-    currentTool = "select";
+    toolManager.setTool("select");
     console.log("선택 도구 활성화");
   }
 
   function handleBoxTool() {
-    currentTool = "box";
+    toolManager.setTool("box");
     console.log("박스 생성 도구 활성화");
   }
 
@@ -74,7 +72,7 @@
     <Button variant="ghost" size="icon" aria-label="다음 이미지 (D)" onclick={handleNextImage}><ArrowRight /></Button>
     <div class="h-px w-8 bg-border my-1" role="separator"></div>
     <Button 
-      variant={currentTool === "select" ? "secondary" : "ghost"} 
+      variant={toolManager.currentTool === "select" ? "secondary" : "ghost"} 
       size="icon" 
       aria-label="선택 도구 (V)"
       onclick={handleSelectTool}
@@ -82,7 +80,7 @@
       <MousePointer2 />
     </Button>
     <Button 
-      variant={currentTool === "box" ? "secondary" : "ghost"} 
+      variant={toolManager.currentTool === "box" ? "secondary" : "ghost"} 
       size="icon" 
       aria-label="박스 생성 도구 (B)"
       onclick={handleBoxTool}

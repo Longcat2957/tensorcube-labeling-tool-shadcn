@@ -2,8 +2,10 @@
   import { getContext, onMount, onDestroy, tick } from "svelte";
   import { Canvas, FabricImage } from "fabric";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
+  const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
 
   let canvasEl: HTMLCanvasElement;
   let canvasContainer: HTMLDivElement;
@@ -15,6 +17,98 @@
   const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 5.0;
   const ZOOM_STEP = 0.1;
+
+  /**
+   * 스크린 좌표를 원본 이미지 픽셀 좌표로 변환
+   */
+  function screenToImagePixel(screenX: number, screenY: number): { x: number; y: number } {
+    if (!currentImageObject) {
+      return { x: 0, y: 0 };
+    }
+
+    const imgWidth = currentImageObject.width || 1;
+    const imgHeight = currentImageObject.height || 1;
+    const scale = currentImageObject.scaleX || 1;
+    const imgCenterX = currentImageObject.left || 0;
+    const imgCenterY = currentImageObject.top || 0;
+
+    // 이미지 좌상단 좌표 계산 (origin이 center이므로)
+    const imgLeft = imgCenterX - (imgWidth * scale) / 2;
+    const imgTop = imgCenterY - (imgHeight * scale) / 2;
+
+    // 스크린 좌표를 원본 픽셀 좌표로 변환
+    const imageX = Math.round((screenX - imgLeft) / scale);
+    const imageY = Math.round((screenY - imgTop) / scale);
+
+    return { x: imageX, y: imageY };
+  }
+
+  /**
+   * 도구에 따른 마우스 다운 핸들러
+   */
+  function handleMouseDown(opt: any): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    // Fabric.js v7: scenePoint를 사용하여 캔버스 좌표 가져오기
+    const pointer = opt.scenePoint || { x: 0, y: 0 };
+    const imageCoords = screenToImagePixel(pointer.x, pointer.y);
+
+    console.log(`Mouse down at canvas (${pointer.x.toFixed(1)}, ${pointer.y.toFixed(1)}) -> image (${imageCoords.x}, ${imageCoords.y})`);
+
+    switch (toolManager.currentTool) {
+      case 'select':
+        // TODO: 객체 선택 로직
+        console.log('Select tool: 클릭 위치에서 객체 선택 시도');
+        break;
+      
+      case 'box':
+        // 박스 그리기 시작
+        toolManager.startDrawing(imageCoords);
+        console.log('Box tool: 드로잉 시작', imageCoords);
+        break;
+      
+      case 'pan':
+        // TODO: 패닝 시작
+        console.log('Pan tool: 패닝 시작');
+        break;
+    }
+  }
+
+  /**
+   * 마우스 이동 핸들러
+   */
+  function handleMouseMove(opt: any): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    // Fabric.js v7: scenePoint를 사용하여 캔버스 좌표 가져오기
+    const pointer = opt.scenePoint || { x: 0, y: 0 };
+    const imageCoords = screenToImagePixel(pointer.x, pointer.y);
+
+    // 현재 마우스 위치 업데이트 (toolManager에 저장 - Footer에서 사용)
+    toolManager.updateMousePosition(imageCoords.x, imageCoords.y);
+
+    // 드로잉 중이면 좌표 업데이트
+    if (toolManager.isDrawing) {
+      toolManager.updateDrawing(imageCoords);
+    }
+  }
+
+  /**
+   * 마우스 업 핸들러
+   */
+  function handleMouseUp(): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    if (toolManager.isDrawing) {
+      const result = toolManager.endDrawing();
+      console.log('Drawing ended:', result);
+      
+      // TODO: 여기서 실제 라벨 생성 로직 호출
+      if (result.start && result.end && toolManager.currentTool === 'box') {
+        console.log('Box created from', result.start, 'to', result.end);
+      }
+    }
+  }
 
   // 캔버스 초기화
   async function initCanvas(): Promise<void> {
@@ -36,8 +130,11 @@
     fabricCanvas.setDimensions({ width, height });
     workspaceManager.setCanvasSize(width, height);
 
-    // 마우스 휠 이벤트 (Ctrl + 휠로 줌)
+    // 마우스 이벤트 등록
     fabricCanvas.on("mouse:wheel", handleMouseWheel);
+    fabricCanvas.on("mouse:down", handleMouseDown);
+    fabricCanvas.on("mouse:move", handleMouseMove);
+    fabricCanvas.on("mouse:up", handleMouseUp);
 
     isInitialized = true;
     console.log("Canvas initialized successfully");

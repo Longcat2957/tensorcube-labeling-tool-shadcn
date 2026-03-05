@@ -5,6 +5,7 @@
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
   let minimapContainer: HTMLDivElement;
+  // svelte-ignore non_reactive_update
   let minimapCanvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
 
@@ -162,18 +163,23 @@
   // 리사이즈 옵저버
   let resizeObserver: ResizeObserver | null = null;
 
-  // 상태 변경 감지
+  // 상태 변경 감지 - currentImage가 변경되면 썸네일 로드
   $effect(() => {
-    if (workspaceManager.currentImage && isInitialized) {
+    // workspaceManager.currentImage를 직접 참조하여 반응성 확보
+    const currentImg = workspaceManager.currentImage;
+    
+    if (currentImg && isInitialized) {
       loadThumbnail();
     }
   });
 
+  // zoomLevel, canvasSize 변경 시 미니맵 업데이트
   $effect(() => {
-    // zoomLevel 변경 시 미니맵 업데이트
-    workspaceManager.zoomLevel;
-    workspaceManager.canvasWidth;
-    workspaceManager.canvasHeight;
+    // 의존성 추적을 위해 값들을 참조
+    // (drawMinimap 내부에서 실제 사용됨)
+    void workspaceManager.zoomLevel;
+    void workspaceManager.canvasWidth;
+    void workspaceManager.canvasHeight;
     
     if (thumbnailImage && ctx && minimapWidth > 0) {
       drawMinimap();
