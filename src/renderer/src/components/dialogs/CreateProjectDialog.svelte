@@ -11,7 +11,9 @@
 
   let open = $state(false);
   let workspaceName = $state("");
-  let sourceFolderPath = $state("");
+  let sourceFolders = $state<{ id: number; path: string }[]>([]);
+  let nextSourceFolderId = $state(1);
+  let savePath = $state("");
   let labelingType = $state("1");
   let classes = $state([{ id: 0, name: "" }]);
   let nextClassId = $state(1);
@@ -27,9 +29,20 @@
     }
   }
 
-  function selectFolder() {
+  function addSourceFolder() {
     // TODO: Electron IPC로 폴더 선택 다이얼로그 호출
-    sourceFolderPath = "/selected/folder/path";
+    const mockPath = `/selected/folder/path/${nextSourceFolderId}`;
+    sourceFolders = [...sourceFolders, { id: nextSourceFolderId, path: mockPath }];
+    nextSourceFolderId++;
+  }
+
+  function removeSourceFolder(id: number) {
+    sourceFolders = sourceFolders.filter((f) => f.id !== id);
+  }
+
+  function selectSavePath() {
+    // TODO: Electron IPC로 폴더 선택 다이얼로그 호출
+    savePath = "/selected/save/path";
   }
 
   function handleCreate() {
@@ -61,18 +74,57 @@
         />
       </div>
 
-      <!-- 원천데이터 폴더 선택 -->
+      <!-- 원천데이터 폴더 선택 (다중 선택 가능) -->
       <div class="space-y-2">
-        <Label>원천데이터 폴더</Label>
+        <div class="flex items-center justify-between">
+          <Label>원천데이터 폴더</Label>
+          <Button variant="ghost" size="sm" onclick={addSourceFolder}>
+            <Plus class="size-4 mr-1" />
+            폴더 추가
+          </Button>
+        </div>
+        <ScrollArea class="h-28 rounded-md border p-2">
+          {#if sourceFolders.length === 0}
+            <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
+              폴더를 추가하세요
+            </div>
+          {:else}
+            <div class="space-y-2">
+              {#each sourceFolders as folder (folder.id)}
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={folder.path}
+                    readonly
+                    class="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onclick={() => removeSourceFolder(folder.id)}
+                    class="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 class="size-4" />
+                  </Button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </ScrollArea>
+      </div>
+
+      <!-- 프로젝트 저장 경로 -->
+      <div class="space-y-2">
+        <Label>프로젝트 저장 경로</Label>
         <div class="flex gap-2">
           <input
             type="text"
-            value={sourceFolderPath}
+            value={savePath}
             readonly
-            placeholder="폴더를 선택하세요"
+            placeholder="저장할 위치를 선택하세요"
             class="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
-          <Button variant="outline" size="icon" onclick={selectFolder}>
+          <Button variant="outline" size="icon" onclick={selectSavePath}>
             <FolderOpen class="size-4" />
           </Button>
         </div>

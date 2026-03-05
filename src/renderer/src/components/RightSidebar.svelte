@@ -45,7 +45,7 @@
               <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Classes</h3>
               <RadioGroup bind:value={selectedClass} class="gap-1" aria-label="클래스 선택">
                 {#each classes as cls, i}
-                  <div class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50 transition-colors cursor-pointer">
+                  <div class="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors cursor-pointer {selectedClass === cls.id ? 'bg-muted border border-primary/50' : 'hover:bg-muted/50 border border-transparent'}">
                     <RadioGroupItem value={cls.id} id={`class-${cls.id}`} aria-label="{cls.name} 클래스" />
                     <Label for={`class-${cls.id}`} class="flex items-center gap-2 cursor-pointer flex-1 text-sm">
                       <span 
