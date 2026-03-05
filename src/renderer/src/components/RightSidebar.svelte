@@ -49,7 +49,7 @@
                     <RadioGroupItem value={cls.id} id={`class-${cls.id}`} aria-label="{cls.name} 클래스" />
                     <Label for={`class-${cls.id}`} class="flex items-center gap-2 cursor-pointer flex-1 text-sm">
                       <span 
-                        class="w-2.5 h-2.5 rounded-sm flex-shrink-0" 
+                        class="w-2.5 h-2.5 rounded-sm shrink-0" 
                         style="background-color: {cls.color}"
                         aria-hidden="true"
                       ></span>
@@ -76,7 +76,7 @@
                     role="listitem"
                   >
                     <span 
-                      class="w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10" 
+                      class="w-3 h-3 rounded-sm shrink-0 ring-1 ring-black/10" 
                       style="background-color: {label.color}"
                       aria-hidden="true"
                     ></span>
