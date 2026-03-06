@@ -5,7 +5,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 const dialog = {
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
   selectWorkspaceFolder: () => ipcRenderer.invoke('dialog:selectWorkspaceFolder'),
-  selectFolders: () => ipcRenderer.invoke('dialog:selectFolders')
+  selectFolders: () => ipcRenderer.invoke('dialog:selectFolders'),
+  selectExportFolder: () => ipcRenderer.invoke('dialog:selectExportFolder')
 }
 
 // Workspace APIs
@@ -27,7 +28,9 @@ const workspace = {
     }
   ) => ipcRenderer.invoke('workspace:update', workspacePath, options),
   getInfo: (workspacePath: string) => ipcRenderer.invoke('workspace:getInfo', workspacePath),
-  getImageList: (workspacePath: string) => ipcRenderer.invoke('workspace:getImageList', workspacePath)
+  getImageList: (workspacePath: string) => ipcRenderer.invoke('workspace:getImageList', workspacePath),
+  export: (workspacePath: string, options: Record<string, unknown>) =>
+    ipcRenderer.invoke('workspace:export', workspacePath, options)
 }
 
 // Label APIs

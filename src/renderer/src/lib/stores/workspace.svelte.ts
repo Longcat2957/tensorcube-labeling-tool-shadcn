@@ -5,7 +5,9 @@ import type {
   ImageInfo, 
   LabelData, 
   BBAnnotation,
-  OBBAnnotation 
+  OBBAnnotation,
+  ExportOptions,
+  ExportResult
 } from '../../../../shared/types';
 
 // Re-export BBAnnotation for use in other components
@@ -269,6 +271,17 @@ async function updateWorkspaceConfigFile(options: UpdateWorkspaceOptions): Promi
   return true;
 }
 
+async function exportDataset(options: ExportOptions): Promise<ExportResult> {
+  if (!workspacePath) {
+    return {
+      success: false,
+      error: '열려 있는 워크스페이스가 없습니다.'
+    };
+  }
+
+  return await window.api.workspace.export(workspacePath, options);
+}
+
 // Context key
 export const WORKSPACE_MANAGER_KEY = Symbol('workspaceManager');
 
@@ -495,6 +508,7 @@ export function createWorkspaceManager() {
     saveLabel,
     updateWorkspaceConfig,
     updateWorkspaceConfigFile,
+    exportDataset,
     loadCurrentImageLabel,
     setSelectedClassId,
     

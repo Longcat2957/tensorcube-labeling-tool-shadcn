@@ -56,3 +56,30 @@ export interface LabelData {
   };
   annotations: (BBAnnotation | OBBAnnotation)[];
 }
+
+export type ExportFormat = 'yolo' | 'coco' | 'yolo-obb' | 'dota';
+
+export interface ExportOptions {
+  format: ExportFormat;
+  outputPath: string;
+  exportName: string;
+  includeCompletedOnly: boolean;
+  resize?: {
+    enabled: boolean;
+    width: number;
+    height: number;
+  };
+  split: {
+    train: number;
+    val: number;
+    test: number;
+  };
+}
+
+export interface ExportResult {
+  success: boolean;
+  outputPath?: string;
+  exportedCount?: number;
+  skippedCount?: number;
+  error?: string;
+}

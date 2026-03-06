@@ -2,7 +2,7 @@
   import { getContext } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Tabs, TabsList, TabsTrigger } from "$lib/components/ui/tabs/index.js";
-  import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "$lib/components/ui/dropdown-menu/index.js";
+  import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuSeparator } from "$lib/components/ui/dropdown-menu/index.js";
   import { Menu, ArrowDownToLine, Plus, FolderOpen, Settings } from "@lucide/svelte";
   import CreateProjectDialog from "./dialogs/CreateProjectDialog.svelte";
   import OpenWorkspaceDialog from "./dialogs/OpenWorkspaceDialog.svelte";

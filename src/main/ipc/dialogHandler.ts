@@ -42,4 +42,17 @@ export function registerDialogHandlers(): void {
 
     return result.filePaths;
   });
+
+  ipcMain.handle('dialog:selectExportFolder', async () => {
+    const result = await dialog.showOpenDialog(BrowserWindow.getFocusedWindow()!, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: '내보내기 폴더 선택'
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    return result.filePaths[0];
+  });
 }

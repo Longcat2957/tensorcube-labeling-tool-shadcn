@@ -4,6 +4,7 @@ export interface DialogApi {
   selectFolder: () => Promise<string | null>
   selectWorkspaceFolder: () => Promise<string | null>
   selectFolders: () => Promise<string[]>
+  selectExportFolder: () => Promise<string | null>
 }
 
 export interface WorkspaceApi {
@@ -23,6 +24,7 @@ export interface WorkspaceApi {
   ) => Promise<{ success: boolean; config?: WorkspaceConfig; error?: string }>
   getInfo: (workspacePath: string) => Promise<WorkspaceInfo | null>
   getImageList: (workspacePath: string) => Promise<ImageInfo[]>
+  export: (workspacePath: string, options: ExportOptions) => Promise<ExportResult>
 }
 
 export interface LabelApi {
@@ -86,6 +88,33 @@ export interface LabelData {
     height: number
   }
   annotations: (BBAnnotation | OBBAnnotation)[]
+}
+
+export type ExportFormat = 'yolo' | 'coco' | 'yolo-obb' | 'dota'
+
+export interface ExportOptions {
+  format: ExportFormat
+  outputPath: string
+  exportName: string
+  includeCompletedOnly: boolean
+  resize?: {
+    enabled: boolean
+    width: number
+    height: number
+  }
+  split: {
+    train: number
+    val: number
+    test: number
+  }
+}
+
+export interface ExportResult {
+  success: boolean
+  outputPath?: string
+  exportedCount?: number
+  skippedCount?: number
+  error?: string
 }
 
 export interface BBAnnotation {

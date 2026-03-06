@@ -1,12 +1,49 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { getContext } from "svelte";
+  import { toast } from "svelte-sonner";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group/index.js";
-  import { ArrowDownToLine, Settings } from "@lucide/svelte";
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import { ArrowDownToLine } from "@lucide/svelte";
 
   let { children }: { children: Snippet } = $props();
+
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
+
+  const exportFormats = $derived(
+    workspaceManager.isOBBMode
+      ? [
+          {
+            value: "yolo-obb",
+            id: "format-yolo-obb",
+            title: "YOLO-OBB",
+            description: ".txt (회전 박스)"
+          },
+          {
+            value: "dota",
+            id: "format-dota",
+            title: "DOTA",
+            description: ".txt (OBB 전용)"
+          }
+        ]
+      : [
+          {
+            value: "yolo",
+            id: "format-yolo",
+            title: "YOLO",
+            description: ".txt (정규화된 좌표)"
+          },
+          {
+            value: "coco",
+            id: "format-coco",
+            title: "COCO",
+            description: ".json (표준 포맷)"
+          }
+        ]
+  );
 
   let open = $state(false);
   let exportFormat = $state("yolo");
@@ -16,15 +53,92 @@
   let trainRatio = $state(80);
   let valRatio = $state(10);
   let testRatio = $state(10);
+  let includeCompletedOnly = $state(false);
+  let exporting = $state(false);
+  let exportName = $state("");
 
-  function handleExport() {
-    // TODO: 내보내기 로직
-    open = false;
+  function createDefaultExportName(): string {
+    const workspaceName = workspaceManager.workspaceConfig?.workspace ?? "workspace";
+    const formatName = exportFormat;
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mi = String(now.getMinutes()).padStart(2, "0");
+    return `${workspaceName}-${formatName}-${yyyy}${mm}${dd}-${hh}${mi}`;
   }
 
-  function handleSettingsClick() {
-    // TODO: 추가 설정 패널 토글 또는 설정 모달 열기
+  async function handleExport() {
+    if (!workspaceManager.workspacePath) {
+      toast.error("열려 있는 워크스페이스가 없습니다.");
+      return;
+    }
+
+    if (trainRatio + valRatio + testRatio !== 100) {
+      toast.error("분할 비율의 합이 100%가 되어야 합니다.");
+      return;
+    }
+
+    if (resizeEnabled && (resizeWidth < 1 || resizeHeight < 1)) {
+      toast.error("리사이즈 크기는 1 이상이어야 합니다.");
+      return;
+    }
+
+    if (!exportName.trim()) {
+      toast.error("export 이름을 입력하세요.");
+      return;
+    }
+
+    const outputPath = await window.api.dialog.selectExportFolder();
+    if (!outputPath) {
+      return;
+    }
+
+    exporting = true;
+
+    const result = await workspaceManager.exportDataset({
+      format: exportFormat as "yolo" | "coco" | "yolo-obb" | "dota",
+      outputPath,
+      exportName,
+      includeCompletedOnly,
+      resize: {
+        enabled: resizeEnabled,
+        width: resizeWidth,
+        height: resizeHeight,
+      },
+      split: {
+        train: trainRatio,
+        val: valRatio,
+        test: testRatio,
+      },
+    });
+
+    exporting = false;
+
+    if (result.success) {
+      toast.success(`내보내기가 완료되었습니다. (${result.exportedCount ?? 0}개)`);
+      open = false;
+      return;
+    }
+
+    toast.error(result.error || "내보내기에 실패했습니다.");
   }
+
+  $effect(() => {
+    const allowedFormats = exportFormats.map((format) => format.value);
+
+    if (!allowedFormats.includes(exportFormat)) {
+      exportFormat = workspaceManager.isOBBMode ? "yolo-obb" : "yolo";
+    }
+  });
+
+  $effect(() => {
+    if (!open) return;
+    if (!exportName.trim()) {
+      exportName = createDefaultExportName();
+    }
+  });
 </script>
 
 <Dialog.Root bind:open>
@@ -38,38 +152,33 @@
     </Dialog.Header>
 
     <div class="space-y-6 py-4">
+      <div class="space-y-2">
+        <Label for="export-name">Export 이름</Label>
+        <input
+          id="export-name"
+          type="text"
+          bind:value={exportName}
+          placeholder="예: car-dataset-v1"
+          class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <p class="text-xs text-muted-foreground">
+          선택한 폴더 아래에 <code>{exportName || "export-name"}</code> 디렉토리를 새로 만들어 결과를 저장합니다.
+        </p>
+      </div>
+
       <!-- 내보내기 포맷 선택 -->
       <div class="space-y-2">
         <Label>내보내기 포맷</Label>
         <RadioGroup bind:value={exportFormat} class="grid grid-cols-2 gap-2">
-          <div class="flex items-center space-x-2 p-3 rounded-md border hover:bg-muted/50 transition-colors">
-            <RadioGroupItem value="yolo" id="format-yolo" />
-            <Label for="format-yolo" class="font-normal cursor-pointer">
-              <span class="block font-medium">YOLO</span>
-              <span class="text-xs text-muted-foreground">.txt (정규화된 좌표)</span>
-            </Label>
-          </div>
-          <div class="flex items-center space-x-2 p-3 rounded-md border hover:bg-muted/50 transition-colors">
-            <RadioGroupItem value="yolo-obb" id="format-yolo-obb" />
-            <Label for="format-yolo-obb" class="font-normal cursor-pointer">
-              <span class="block font-medium">YOLO-OBB</span>
-              <span class="text-xs text-muted-foreground">.txt (회전 박스)</span>
-            </Label>
-          </div>
-          <div class="flex items-center space-x-2 p-3 rounded-md border hover:bg-muted/50 transition-colors">
-            <RadioGroupItem value="coco" id="format-coco" />
-            <Label for="format-coco" class="font-normal cursor-pointer">
-              <span class="block font-medium">COCO</span>
-              <span class="text-xs text-muted-foreground">.json (표준 포맷)</span>
-            </Label>
-          </div>
-          <div class="flex items-center space-x-2 p-3 rounded-md border hover:bg-muted/50 transition-colors">
-            <RadioGroupItem value="dota" id="format-dota" />
-            <Label for="format-dota" class="font-normal cursor-pointer">
-              <span class="block font-medium">DOTA</span>
-              <span class="text-xs text-muted-foreground">.txt (OBB 전용)</span>
-            </Label>
-          </div>
+          {#each exportFormats as format}
+            <div class="flex items-center space-x-2 rounded-md border p-3 transition-colors hover:bg-muted/50">
+              <RadioGroupItem value={format.value} id={format.id} />
+              <Label for={format.id} class="cursor-pointer font-normal">
+                <span class="block font-medium">{format.title}</span>
+                <span class="text-xs text-muted-foreground">{format.description}</span>
+              </Label>
+            </div>
+          {/each}
         </RadioGroup>
       </div>
 
@@ -106,6 +215,19 @@
             </div>
           </div>
         {/if}
+      </div>
+
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <Label>내보내기 대상</Label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" bind:checked={includeCompletedOnly} class="size-4 rounded border-input" />
+            <span class="text-sm text-muted-foreground">검수 완료만</span>
+          </label>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          활성화하면 <code>_C.json</code> 상태만 내보냅니다. 비활성화하면 작업 중 라벨도 포함합니다.
+        </p>
       </div>
 
       <!-- 데이터셋 분할 비율 -->
@@ -153,14 +275,10 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={handleSettingsClick}>
-        <Settings class="size-4 mr-1" />
-        추가 설정
-      </Button>
       <Button variant="outline" onclick={() => (open = false)}>취소</Button>
-      <Button onclick={handleExport}>
+      <Button onclick={handleExport} disabled={exporting || trainRatio + valRatio + testRatio !== 100}>
         <ArrowDownToLine class="size-4 mr-1" />
-        내보내기
+        {exporting ? '내보내는 중...' : '내보내기'}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

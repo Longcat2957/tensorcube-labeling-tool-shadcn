@@ -6,7 +6,8 @@ import {
   getWorkspaceInfo,
   getImageList
 } from '../services/workspaceService.js';
-import type { CreateWorkspaceOptions, UpdateWorkspaceOptions } from '../types/workspace.js';
+import { exportWorkspace } from '../services/exportService.js';
+import type { CreateWorkspaceOptions, ExportOptions, UpdateWorkspaceOptions } from '../types/workspace.js';
 
 export function registerWorkspaceHandlers(): void {
   // 워크스페이스 생성
@@ -35,5 +36,9 @@ export function registerWorkspaceHandlers(): void {
   // 이미지 목록 조회
   ipcMain.handle('workspace:getImageList', async (_event, workspacePath: string) => {
     return await getImageList(workspacePath);
+  });
+
+  ipcMain.handle('workspace:export', async (_event, workspacePath: string, options: ExportOptions) => {
+    return await exportWorkspace(workspacePath, options);
   });
 }
