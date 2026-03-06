@@ -9,7 +9,6 @@ import type {
   ExportOptions,
   ExportResult
 } from '../../../../shared/types';
-import { getClassColor } from '../canvas/colors.js';
 
 // Re-export BBAnnotation for use in other components
 export type { BBAnnotation, OBBAnnotation } from '../../../../shared/types';
@@ -71,6 +70,15 @@ const currentLabels = $derived(() => {
     visible: true
   }));
 });
+
+// 클래스별 색상 반환
+function getClassColor(classId: number): string {
+  const colors = [
+    '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+  ];
+  return colors[classId % colors.length];
+}
 
 function cloneLabelData(data: LabelData | null): LabelData | null {
   if (!data) return null;
