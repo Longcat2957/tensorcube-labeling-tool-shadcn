@@ -61,7 +61,11 @@ export function createBBRect(
     transparentCorners: false,
     hoverCursor: 'move',
     moveCursor: 'move',
+    lockRotation: true, // BB 모드에서는 회전 비활성화
   });
+  
+  // 회전 컨트롤(mtr - middle-top-rotate) 숨김
+  rect.setControlVisible('mtr', false);
   
   // data 속성 직접 할당
   (rect as unknown as BoxRect).data = {
@@ -112,7 +116,11 @@ export function createOBBRect(
     transparentCorners: false,
     hoverCursor: 'move',
     moveCursor: 'move',
+    lockRotation: false, // OBB 모드에서는 회전 허용
   });
+  
+  // 회전 컨트롤(mtr - middle-top-rotate) 표시
+  rect.setControlVisible('mtr', true);
   
   // data 속성 직접 할당
   (rect as unknown as BoxRect).data = {
@@ -151,9 +159,17 @@ export function createLabelBadge(
     leftX = annotation.bbox[0]; // xmin
     topY = annotation.bbox[1];  // ymin
   } else {
-    // OBB: 중심점 사용 (회전된 박스의 경우)
-    leftX = annotation.obb[0];  // cx
-    topY = annotation.obb[1];   // cy
+    // OBB: 회전된 박스의 left-top corner 계산
+    const [cx, cy, w, h, angle] = annotation.obb;
+    const rad = (angle * Math.PI) / 180;
+    const halfW = w / 2;
+    const halfH = h / 2;
+    
+    // 회전 변환 적용하여 left-top corner 위치 계산
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    leftX = cx + (-halfW * cos) - (-halfH * sin);
+    topY = cy + (-halfW * sin) + (-halfH * cos);
   }
   
   // 스크린 좌표로 변환

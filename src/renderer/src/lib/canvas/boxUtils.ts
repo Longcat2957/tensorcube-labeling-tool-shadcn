@@ -106,8 +106,17 @@ export function updateBadgePosition(
     leftX = xmin;
     topY = ymin;
   } else {
-    // OBB: 중심점 사용
-    [leftX, topY] = coords as ImageOBB;
+    // OBB: 회전된 박스의 left-top corner 계산
+    const [cx, cy, w, h, angle] = coords as ImageOBB;
+    const rad = (angle * Math.PI) / 180;
+    const halfW = w / 2;
+    const halfH = h / 2;
+    
+    // 회전 변환 적용하여 left-top corner 위치 계산
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    leftX = cx + (-halfW * cos) - (-halfH * sin);
+    topY = cy + (-halfW * sin) + (-halfH * cos);
   }
   
   const screenX = leftX * scale + offsetX;

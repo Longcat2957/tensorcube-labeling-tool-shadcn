@@ -118,6 +118,13 @@ export function applySelectedStyle(rect: BoxRect, selected: boolean): void {
     });
   }
   
+  // OBB 모드에서는 회전 컨트롤 항상 표시, BB 모드에서는 항상 숨김
+  if (rect.data.shape === 'obb') {
+    rect.setControlVisible('mtr', true);
+  } else {
+    rect.setControlVisible('mtr', false);
+  }
+  
   rect.setCoords();
 }
 

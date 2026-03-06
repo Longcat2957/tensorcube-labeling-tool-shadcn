@@ -12,7 +12,7 @@ import type { Canvas, FabricImage, Object as FabricObject } from "fabric";
 import type { WorkspaceManager } from "../../stores/workspace.svelte.js";
 import type { ToolManager } from "../../stores/toolManager.svelte.js";
 import { getClassColor, hexToRgba, BOX_STYLE, type BoxRect } from "../styles/boxStyles.js";
-import { pixelToImage, createBboxFromPoints } from "../coordinates.js";
+import { pixelToImage, createBboxFromPoints, bboxToObb } from "../coordinates.js";
 import { getImageOffset } from "../core/imageLoader.js";
 import type { CanvasLabelObjects } from "../labels/labelManager.js";
 
@@ -180,17 +180,28 @@ export function handleMouseUp(
   // 이미지 좌표로 BBox 생성
   const bbox = createBboxFromPoints(state.startX, state.startY, imageCoords.x, imageCoords.y);
 
-  console.log('[Draw] BBox created:', { xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3] });
-
   // UUID 생성
   const id = crypto.randomUUID();
 
-  // 워크스페이스에 추가
-  workspaceManager.addBBAnnotation({
-    id,
-    class_id: state.currentClassId,
-    bbox,
-  });
+  // 라벨링 타입에 따라 적절한 어노테이션 추가
+  if (workspaceManager.isOBBMode) {
+    // OBB 모드: bbox를 obb로 변환 (중심점, 너비, 높이, 각도=0)
+    const obb = bboxToObb(bbox, 0);
+    console.log('[Draw] OBB created:', { cx: obb[0], cy: obb[1], w: obb[2], h: obb[3], angle: obb[4] });
+    workspaceManager.addOBBAnnotation({
+      id,
+      class_id: state.currentClassId,
+      obb,
+    });
+  } else {
+    // BB 모드
+    console.log('[Draw] BBox created:', { xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3] });
+    workspaceManager.addBBAnnotation({
+      id,
+      class_id: state.currentClassId,
+      bbox,
+    });
+  }
 
   // 드로잉 박스 제거
   fabricCanvas.remove(drawingBox.value);

@@ -14,7 +14,7 @@ export interface CanvasEventHandlers {
   onWheel: (event: { e: WheelEvent }) => void;
   onMouseDown: (opt: any) => void;
   onMouseMove: (opt: any) => void;
-  onMouseUp: () => void;
+  onMouseUp: (opt: any) => void;
   onSelectionCleared: () => void;
 }
 
