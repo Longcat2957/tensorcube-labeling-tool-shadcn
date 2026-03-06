@@ -1,37 +1,13 @@
-// Types
-interface WorkspaceConfig {
-  workspace: string;
-  labeling_type: 1 | 2;
-  names: Record<number, string>;
-  image_count: number;
-  created_at: string;
-  last_modified_at: string;
-}
+import type { 
+  WorkspaceConfig, 
+  WorkspaceInfo, 
+  ImageInfo, 
+  LabelData, 
+  BBAnnotation 
+} from '../../../../shared/types';
 
-interface WorkspaceInfo {
-  name: string;
-  labelingType: string;
-  imageCount: number;
-  lastModified: string;
-  path: string;
-}
-
-interface ImageInfo {
-  id: string;
-  filename: string;
-  width: number;
-  height: number;
-  status: 'none' | 'working' | 'completed';
-}
-
-interface LabelData {
-  image_info: {
-    filename: string;
-    width: number;
-    height: number;
-  };
-  annotations: { id: string; class_id: number }[];
-}
+// Re-export BBAnnotation for use in other components
+export type { BBAnnotation } from '../../../../shared/types';
 
 // 워크스페이스 상태
 let workspacePath = $state<string | null>(null);
@@ -50,6 +26,9 @@ let canvasWidth = $state<number>(0);
 let canvasHeight = $state<number>(0);
 let imageWidth = $state<number>(0);
 let imageHeight = $state<number>(0);
+
+// 선택된 라벨 ID
+let selectedLabelId = $state<string | null>(null);
 
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null);
@@ -209,6 +188,56 @@ function resetCanvasState(): void {
   viewportY = 0;
 }
 
+// 라벨 관리 메서드
+function setSelectedLabelId(id: string | null): void {
+  selectedLabelId = id;
+}
+
+function addBBAnnotation(annotation: BBAnnotation): void {
+  if (!currentLabelData) {
+    // 라벨 데이터가 없으면 새로 생성
+    currentLabelData = {
+      image_info: {
+        filename: currentImage?.filename || '',
+        width: imageWidth,
+        height: imageHeight
+      },
+      annotations: [annotation]
+    };
+  } else {
+    currentLabelData = {
+      ...currentLabelData,
+      annotations: [...currentLabelData.annotations, annotation]
+    };
+  }
+}
+
+function deleteLabel(labelId: string): void {
+  if (!currentLabelData) return;
+  
+  currentLabelData = {
+    ...currentLabelData,
+    annotations: currentLabelData.annotations.filter(ann => ann.id !== labelId)
+  };
+  
+  if (selectedLabelId === labelId) {
+    selectedLabelId = null;
+  }
+}
+
+function getBBAnnotationById(labelId: string): BBAnnotation | undefined {
+  if (!currentLabelData) return undefined;
+  return currentLabelData.annotations.find(ann => ann.id === labelId) as BBAnnotation | undefined;
+}
+
+function updateBBAnnotation(labelId: string, bbox: [number, number, number, number]): void {
+  if (!currentLabelData) return;
+  const ann = currentLabelData.annotations.find(a => a.id === labelId) as BBAnnotation | undefined;
+  if (ann) {
+    ann.bbox = bbox;
+  }
+}
+
 // Store export
 export function createWorkspaceManager() {
   return {
@@ -224,6 +253,7 @@ export function createWorkspaceManager() {
     get classList() { return classList(); },
     get currentLabels() { return currentLabels(); },
     get selectedClassId() { return selectedClassId; },
+    get selectedLabelId() { return selectedLabelId; },
     
     // 캔버스 상태
     get zoomLevel() { return zoomLevel; },
@@ -244,6 +274,13 @@ export function createWorkspaceManager() {
     updateWorkspaceConfig,
     loadCurrentImageLabel,
     setSelectedClassId,
+    
+    // 라벨 관리 메서드
+    setSelectedLabelId,
+    addBBAnnotation,
+    updateBBAnnotation,
+    deleteLabel,
+    getBBAnnotationById,
     
     // 캔버스 메서드
     setZoomLevel,

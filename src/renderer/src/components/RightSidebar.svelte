@@ -23,6 +23,16 @@
     const target = event.target as HTMLInputElement;
     workspaceManager.setSelectedClassId(parseInt(target.value));
   }
+
+  // 라벨 선택 (클릭 시)
+  function handleLabelClick(labelId: string) {
+    workspaceManager.setSelectedLabelId(labelId);
+  }
+
+  // 라벨 삭제
+  function handleLabelDelete(labelId: string) {
+    workspaceManager.deleteLabel(labelId);
+  }
 </script>
 
 <aside class="h-full border-l flex flex-col" aria-label="인스펙터 패널">
@@ -76,9 +86,13 @@
                 <div class="space-y-1" role="list" aria-label="라벨 목록">
                   {#each workspaceManager.currentLabels as label}
                     {@const isVisible = labelVisibility[label.id] ?? true}
+                    {@const isSelected = workspaceManager.selectedLabelId === label.id}
                     <div
-                      class="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors hover:bg-muted/50 border border-transparent"
+                      class="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors hover:bg-muted/50 border cursor-pointer {isSelected ? 'border-primary bg-primary/10' : 'border-transparent'}"
                       role="listitem"
+                      onclick={() => handleLabelClick(label.id)}
+                      onkeydown={(e) => e.key === 'Enter' && handleLabelClick(label.id)}
+                      tabindex="0"
                     >
                       <span 
                         class="w-3 h-3 rounded-sm shrink-0 ring-1 ring-black/10" 
@@ -92,7 +106,7 @@
                           size="icon" 
                           class="h-6 w-6 text-muted-foreground hover:text-foreground"
                           aria-label="{label.className} 라벨 보이기/숨기기"
-                          onclick={() => toggleLabelVisibility(label.id)}
+                          onclick={(e) => { e.stopPropagation(); toggleLabelVisibility(label.id); }}
                         >
                           {#if isVisible}
                             <Eye class="h-3.5 w-3.5" />
@@ -105,6 +119,7 @@
                           size="icon" 
                           class="h-6 w-6 text-muted-foreground hover:text-destructive"
                           aria-label="{label.className} 라벨 삭제"
+                          onclick={(e) => { e.stopPropagation(); handleLabelDelete(label.id); }}
                         >
                           <Trash2 class="h-3.5 w-3.5" />
                         </Button>

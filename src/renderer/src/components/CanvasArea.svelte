@@ -1,9 +1,22 @@
 <script lang="ts">
   import { getContext, onMount, onDestroy, tick } from "svelte";
-  import { Canvas, FabricImage } from "fabric";
+  import { Canvas, FabricImage, Rect } from "fabric";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
   import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
   import { KEYBOARD_MANAGER_KEY, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
+  import { 
+    createLabelBox, 
+    createLabelBadge,
+    createDrawingBox, 
+    type LabelBadgeObjects,
+    type LabelBoxRect,
+    updateBoxPosition, 
+    updateLabelBadgePosition,
+    setBoxSelectedStyle,
+    normalizeBbox,
+    screenToImage
+  } from "$lib/canvas/boxRenderer.js";
+  import type { BBAnnotation } from "$lib/stores/workspace.svelte.js";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
   const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
@@ -26,6 +39,38 @@
   let panStartY = 0;
   let imgStartLeft = 0;
   let imgStartTop = 0;
+
+  // 드로잉 박스 상태
+  let drawingBox: Rect | null = null;
+
+  interface CanvasLabelObjects {
+    rect: LabelBoxRect;
+    badge: LabelBadgeObjects;
+  }
+
+  // 라벨 박스 맵 (labelId -> render objects)
+  let labelBoxes = new Map<string, CanvasLabelObjects>();
+
+  /**
+   * 이미지의 화면상 좌상단 좌표 계산
+   */
+  function getImageOffset(): { x: number; y: number } {
+    if (!currentImageObject) {
+      return { x: 0, y: 0 };
+    }
+
+    const imgWidth = currentImageObject.width || 1;
+    const imgHeight = currentImageObject.height || 1;
+    const scale = currentImageObject.scaleX || 1;
+    const imgCenterX = currentImageObject.left || 0;
+    const imgCenterY = currentImageObject.top || 0;
+
+    // origin이 center이므로 좌상단 좌표 계산
+    const imgLeft = imgCenterX - (imgWidth * scale) / 2;
+    const imgTop = imgCenterY - (imgHeight * scale) / 2;
+
+    return { x: imgLeft, y: imgTop };
+  }
 
   /**
    * 스크린 좌표를 원본 이미지 픽셀 좌표로 변환
@@ -64,19 +109,31 @@
 
     console.log(`Mouse down at canvas (${pointer.x.toFixed(1)}, ${pointer.y.toFixed(1)}) -> image (${imageCoords.x}, ${imageCoords.y})`);
 
+    // 현재 선택된 객체가 있는지 확인 (박스 수정 중인지 체크)
+    const activeObject = fabricCanvas.getActiveObject();
+    const isModifyingBox = activeObject && (activeObject as any).data?.type === 'label';
+
     switch (toolManager.currentTool) {
       case 'select':
         // select 도구에서도 패닝 동작 (기본 동작)
-        isPanning = true;
-        panStartX = pointer.x;
-        panStartY = pointer.y;
-        imgStartLeft = currentImageObject.left || 0;
-        imgStartTop = currentImageObject.top || 0;
-        fabricCanvas.defaultCursor = 'grabbing';
-        fabricCanvas.hoverCursor = 'grabbing';
+        // 하지만 박스가 선택되어 있으면 패닝하지 않음 (박스 이동/크기조절 허용)
+        if (!activeObject) {
+          isPanning = true;
+          panStartX = pointer.x;
+          panStartY = pointer.y;
+          imgStartLeft = currentImageObject.left || 0;
+          imgStartTop = currentImageObject.top || 0;
+          fabricCanvas.defaultCursor = 'grabbing';
+          fabricCanvas.hoverCursor = 'grabbing';
+        }
         break;
       
       case 'box':
+        // 박스 수정 중이면 새 박스 생성 방지
+        if (isModifyingBox) {
+          console.log('Box modification in progress, skipping new box creation');
+          return;
+        }
         // 박스 그리기 시작
         toolManager.startDrawing(imageCoords);
         console.log('Box tool: 드로잉 시작', imageCoords);
@@ -119,13 +176,15 @@
       });
       
       updateViewportState();
+      updateAllBoxPositions();
       fabricCanvas.requestRenderAll();
       return;
     }
 
-    // 드로잉 중이면 좌표 업데이트
+    // 드로잉 중이면 좌표 업데이트 및 박스 렌더링
     if (toolManager.isDrawing) {
       toolManager.updateDrawing(imageCoords);
+      updateDrawingBox();
     }
   }
 
@@ -153,11 +212,253 @@
       const result = toolManager.endDrawing();
       console.log('Drawing ended:', result);
       
-      // TODO: 여기서 실제 라벨 생성 로직 호출
+      // 박스 생성 완료
       if (result.start && result.end && toolManager.currentTool === 'box') {
-        console.log('Box created from', result.start, 'to', result.end);
+        createLabelFromDrawing(result.start, result.end);
       }
+      
+      // 드로잉 박스 제거
+      removeDrawingBox();
     }
+  }
+
+  /**
+   * 드로잉 박스 업데이트
+   */
+  function updateDrawingBox(): void {
+    if (!fabricCanvas || !toolManager.drawingStart || !toolManager.drawingCurrent) return;
+
+    const scale = currentImageObject?.scaleX || 1;
+    const offset = getImageOffset();
+
+    // 기존 드로잉 박스 제거
+    if (drawingBox) {
+      fabricCanvas.remove(drawingBox);
+    }
+
+    // 새 드로잉 박스 생성
+    drawingBox = createDrawingBox(
+      toolManager.drawingStart,
+      toolManager.drawingCurrent,
+      scale,
+      offset.x,
+      offset.y,
+      workspaceManager.selectedClassId
+    );
+
+    fabricCanvas.add(drawingBox);
+    fabricCanvas.requestRenderAll();
+  }
+
+  /**
+   * 드로잉 박스 제거
+   */
+  function removeDrawingBox(): void {
+    if (drawingBox && fabricCanvas) {
+      fabricCanvas.remove(drawingBox);
+      drawingBox = null;
+      fabricCanvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * 드로잉 완료 후 라벨 생성
+   */
+  function createLabelFromDrawing(
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ): void {
+    // 최소 크기 체크 (3픽셀 이상)
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    if (width < 3 || height < 3) {
+      console.log('Box too small, ignoring');
+      return;
+    }
+
+    // bbox 정규화
+    const bbox = normalizeBbox(start.x, start.y, end.x, end.y);
+
+    // 고유 ID 생성
+    const id = `label-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // BBAnnotation 생성
+    const annotation: BBAnnotation = {
+      id,
+      class_id: workspaceManager.selectedClassId,
+      bbox,
+    };
+
+    // 워크스페이스에 추가
+    workspaceManager.addBBAnnotation(annotation);
+
+    // 캔버스에 박스 렌더링
+    addBoxToCanvas(annotation);
+
+    console.log('Label created:', annotation);
+  }
+
+  /**
+   * 캔버스에 라벨 박스 추가
+   */
+  function addBoxToCanvas(annotation: BBAnnotation): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    const existingObjects = labelBoxes.get(annotation.id);
+    if (existingObjects) {
+      fabricCanvas.remove(existingObjects.rect);
+      fabricCanvas.remove(existingObjects.badge.background);
+      fabricCanvas.remove(existingObjects.badge.text);
+      labelBoxes.delete(annotation.id);
+    }
+
+    const scale = currentImageObject.scaleX || 1;
+    const offset = getImageOffset();
+
+    const className = workspaceManager.workspaceConfig?.names?.[annotation.class_id] ?? `Class ${annotation.class_id}`;
+    const rect = createLabelBox(annotation, scale, offset.x, offset.y);
+    const badge = createLabelBadge(annotation, className, scale, offset.x, offset.y);
+    
+    // 선택 이벤트 핸들러
+    rect.on('selected', () => {
+      // pan 모드에서는 박스 선택을 즉시 취소
+      if (toolManager.currentTool === 'pan') {
+        fabricCanvas?.discardActiveObject();
+        fabricCanvas?.requestRenderAll();
+        return;
+      }
+      workspaceManager.setSelectedLabelId(annotation.id);
+      setBoxSelectedStyle(rect, true);
+      fabricCanvas?.requestRenderAll();
+    });
+
+    rect.on('deselected', () => {
+      if (workspaceManager.selectedLabelId === annotation.id) {
+        workspaceManager.setSelectedLabelId(null);
+      }
+      setBoxSelectedStyle(rect, false);
+      fabricCanvas?.requestRenderAll();
+    });
+
+    // 수정 이벤트 핸들러 (이동/리사이즈 완료 시)
+    rect.on('modified', () => {
+      if (!currentImageObject) return;
+      const scale = currentImageObject.scaleX || 1;
+      const offset = getImageOffset();
+
+      // rect의 현재 스크린 좌표 → 이미지 픽셀 좌표로 역변환
+      const newBbox = screenToImage(
+        {
+          left: rect.left,
+          top: rect.top,
+          width: rect.getScaledWidth(),
+          height: rect.getScaledHeight(),
+        },
+        scale,
+        offset.x,
+        offset.y
+      );
+
+      // annotation 데이터 업데이트
+      annotation.bbox = newBbox;
+      workspaceManager.updateBBAnnotation(annotation.id, newBbox);
+
+      // 뱃지 위치도 rect에 맞춰 동기화
+      const objects = labelBoxes.get(annotation.id);
+      if (objects) {
+        updateLabelBadgePosition(objects.badge, newBbox, scale, offset.x, offset.y);
+      }
+      rect.setCoords();
+      fabricCanvas?.requestRenderAll();
+      console.log('Box modified:', annotation.id, newBbox);
+    });
+
+    if (workspaceManager.selectedLabelId === annotation.id) {
+      setBoxSelectedStyle(rect, true);
+    }
+
+    fabricCanvas.add(badge.background);
+    fabricCanvas.add(badge.text);
+    fabricCanvas.add(rect);
+    fabricCanvas.bringObjectToFront(rect);
+    labelBoxes.set(annotation.id, { rect, badge });
+
+    // 현재 도구에 맞는 커서를 신규 박스에도 즉시 적용
+    const currentTool = toolManager.currentTool;
+    if (currentTool === 'box') {
+      rect.hoverCursor = 'crosshair';
+      rect.moveCursor = 'crosshair';
+    } else if (currentTool === 'pan') {
+      rect.hoverCursor = 'grab';
+      rect.moveCursor = 'grab';
+    } else {
+      rect.hoverCursor = 'move';
+      rect.moveCursor = 'move';
+    }
+
+    fabricCanvas.requestRenderAll();
+  }
+
+  /**
+   * 캔버스에서 라벨 박스 제거
+   */
+  function removeBoxFromCanvas(labelId: string): void {
+    if (!fabricCanvas) return;
+
+    const objects = labelBoxes.get(labelId);
+    if (objects) {
+      fabricCanvas.remove(objects.rect);
+      fabricCanvas.remove(objects.badge.background);
+      fabricCanvas.remove(objects.badge.text);
+      labelBoxes.delete(labelId);
+      fabricCanvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * 모든 라벨 박스 위치 업데이트 (줌/패닝 후)
+   */
+  function updateAllBoxPositions(): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    const scale = currentImageObject.scaleX || 1;
+    const offset = getImageOffset();
+
+    labelBoxes.forEach((objects, labelId) => {
+      const annotation = workspaceManager.getBBAnnotationById(labelId);
+      if (annotation) {
+        updateBoxPosition(objects.rect, annotation.bbox, scale, offset.x, offset.y);
+        updateLabelBadgePosition(objects.badge, annotation.bbox, scale, offset.x, offset.y);
+      }
+    });
+
+    fabricCanvas.requestRenderAll();
+  }
+
+  /**
+   * 저장된 라벨들을 캔버스에 렌더링
+   */
+  function renderLabels(): void {
+    if (!fabricCanvas) return;
+
+    // 기존 박스 모두 제거
+    labelBoxes.forEach((objects) => {
+      fabricCanvas.remove(objects.rect);
+      fabricCanvas.remove(objects.badge.background);
+      fabricCanvas.remove(objects.badge.text);
+    });
+    labelBoxes.clear();
+
+    // 현재 라벨 데이터에서 BBAnnotation만 렌더링
+    const labelData = workspaceManager.currentLabelData;
+    if (!labelData || !labelData.annotations) return;
+
+    labelData.annotations.forEach((ann) => {
+      // bbox가 있는 경우만 BB로 처리
+      if ('bbox' in ann) {
+        addBoxToCanvas(ann as BBAnnotation);
+      }
+    });
   }
 
   // 캔버스 초기화
@@ -187,6 +488,11 @@
     fabricCanvas.on("mouse:move", handleMouseMove);
     fabricCanvas.on("mouse:up", handleMouseUp);
 
+    // 객체 선택 이벤트 (빈 영역 클릭 시 선택 해제)
+    fabricCanvas.on("selection:cleared", () => {
+      workspaceManager.setSelectedLabelId(null);
+    });
+
     isInitialized = true;
     console.log("Canvas initialized successfully");
   }
@@ -208,6 +514,7 @@
     // 이미지가 있으면 다시 맞춤
     if (currentImageObject) {
       fitImageToCanvas();
+      updateAllBoxPositions();
       fabricCanvas.requestRenderAll();
     }
   }
@@ -232,6 +539,15 @@
         fabricCanvas.remove(currentImageObject);
         currentImageObject = null;
       }
+
+      // 기존 라벨 박스 제거
+      labelBoxes.forEach((objects) => {
+        fabricCanvas.remove(objects.rect);
+        fabricCanvas.remove(objects.badge.background);
+        fabricCanvas.remove(objects.badge.text);
+      });
+      labelBoxes.clear();
+      drawingBox = null;
 
       // 이미지 경로 가져오기
       const imagePath = await window.api.label.getImagePath(
@@ -276,6 +592,9 @@
 
       // 이미지를 캔버스에 맞게 조절하고 중앙 정렬
       fitImageToCanvas();
+
+      // 라벨 렌더링
+      renderLabels();
 
       fabricCanvas.requestRenderAll();
 
@@ -351,18 +670,26 @@
 
     const canvasWidth = fabricCanvas.width || 1;
     const canvasHeight = fabricCanvas.height || 1;
+    const oldZoom = currentImageObject.scaleX || 1;
+    const oldLeft = currentImageObject.left ?? canvasWidth / 2;
+    const oldTop = currentImageObject.top ?? canvasHeight / 2;
+
+    // 패닝 오프셋을 스케일 비율에 맞게 보정 (화면 중심 기준)
+    const ratio = newZoom / oldZoom;
+    const newLeft = canvasWidth / 2 + (oldLeft - canvasWidth / 2) * ratio;
+    const newTop = canvasHeight / 2 + (oldTop - canvasHeight / 2) * ratio;
 
     workspaceManager.setZoomLevel(newZoom);
 
-    // 이미지 스케일 업데이트 (중앙 유지)
     currentImageObject.set({
       scaleX: newZoom,
       scaleY: newZoom,
-      left: canvasWidth / 2,
-      top: canvasHeight / 2,
+      left: newLeft,
+      top: newTop,
     });
 
     updateViewportState();
+    updateAllBoxPositions();
     fabricCanvas.requestRenderAll();
   }
 
@@ -393,24 +720,40 @@
   let cleanupHandlers: (() => void)[] = [];
 
   /**
-   * 도구 변경 시 커서 업데이트
+   * 도구 변경 시 커서 업데이트 (캔버스 + 모든 라벨 박스)
    */
   function updateCursor(): void {
     if (!fabricCanvas) return;
-    
+
+    let canvasCursor: string;
+    let boxHoverCursor: string;
+    let boxMoveCursor: string;
+
     switch (toolManager.currentTool) {
       case 'pan':
-        fabricCanvas.defaultCursor = 'grab';
-        fabricCanvas.hoverCursor = 'grab';
+        canvasCursor = 'grab';
+        boxHoverCursor = 'grab';
+        boxMoveCursor = 'grab';
         break;
       case 'box':
-        fabricCanvas.defaultCursor = 'crosshair';
-        fabricCanvas.hoverCursor = 'crosshair';
+        canvasCursor = 'crosshair';
+        boxHoverCursor = 'crosshair';
+        boxMoveCursor = 'crosshair';
         break;
       default:
-        fabricCanvas.defaultCursor = 'default';
-        fabricCanvas.hoverCursor = 'default';
+        canvasCursor = 'default';
+        boxHoverCursor = 'move';
+        boxMoveCursor = 'move';
     }
+
+    fabricCanvas.defaultCursor = canvasCursor;
+    fabricCanvas.hoverCursor = canvasCursor;
+
+    // 모든 라벨 박스의 커서도 동기화
+    labelBoxes.forEach(({ rect }) => {
+      rect.hoverCursor = boxHoverCursor;
+      rect.moveCursor = boxMoveCursor;
+    });
   }
 
   // 현재 이미지 변경 감지
@@ -425,6 +768,35 @@
     if (fabricCanvas && isInitialized) {
       updateCursor();
     }
+  });
+
+  // 라벨 데이터 변경 감지 (삭제 등)
+  $effect(() => {
+    const currentLabels = workspaceManager.currentLabels;
+    if (!fabricCanvas || !isInitialized) return;
+
+    // 현재 캔버스에 있는 라벨 ID 집합 (스냅샷)
+    const canvasLabelIds = new Set(labelBoxes.keys());
+
+    // 새로운 라벨 ID 집합
+    const newLabelIds = new Set(currentLabels.map(l => l.id));
+
+    // 삭제된 라벨 제거
+    canvasLabelIds.forEach(id => {
+      if (!newLabelIds.has(id)) {
+        removeBoxFromCanvas(id);
+      }
+    });
+
+    const labelData = workspaceManager.currentLabelData;
+    if (!labelData?.annotations) return;
+
+    // labelBoxes Map을 직접 참조하여 중복 추가 방지
+    labelData.annotations.forEach((ann) => {
+      if ('bbox' in ann && !labelBoxes.has(ann.id)) {
+        addBoxToCanvas(ann as BBAnnotation);
+      }
+    });
   });
 
   onMount(async () => {
@@ -446,6 +818,7 @@
       keyboardManager.onAction('center-image', () => {
         if (currentImageObject && fabricCanvas) {
           fitImageToCanvas();
+          updateAllBoxPositions();
           fabricCanvas.requestRenderAll();
           console.log('Image centered');
         }
@@ -457,6 +830,18 @@
       keyboardManager.onAction('pan-tool', () => {
         toolManager.setTool('pan');
         console.log('Pan tool selected');
+      })
+    );
+
+    // Delete 키: 선택된 라벨 삭제
+    cleanupHandlers.push(
+      keyboardManager.onAction('delete', () => {
+        const selectedId = workspaceManager.selectedLabelId;
+        if (selectedId) {
+          workspaceManager.deleteLabel(selectedId);
+          removeBoxFromCanvas(selectedId);
+          console.log('Label deleted:', selectedId);
+        }
       })
     );
 
