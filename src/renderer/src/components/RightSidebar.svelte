@@ -87,6 +87,8 @@
                   {#each workspaceManager.currentLabels as label}
                     {@const isVisible = labelVisibility[label.id] ?? true}
                     {@const isSelected = workspaceManager.selectedLabelId === label.id}
+                    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                     <div
                       class="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors hover:bg-muted/50 border cursor-pointer {isSelected ? 'border-primary bg-primary/10' : 'border-transparent'}"
                       role="listitem"
