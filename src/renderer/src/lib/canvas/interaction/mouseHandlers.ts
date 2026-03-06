@@ -1,324 +1,251 @@
 /**
  * 마우스 이벤트 핸들러
+ * 박스 드로잉 및 상호작용
+ * 
+ * 핵심 원칙:
+ * - 모든 좌표는 이미지 픽셀 단위 (실수)
+ * - 스크린 변환은 렌더링 시에만 수행
  */
 
-import { Canvas, FabricImage, Rect } from "fabric";
-import type { WorkspaceManager, BBAnnotation, OBBAnnotation } from "../../stores/workspace.svelte.js";
+import { Rect } from "fabric";
+import type { Canvas, FabricImage, Object as FabricObject } from "fabric";
+import type { WorkspaceManager } from "../../stores/workspace.svelte.js";
 import type { ToolManager } from "../../stores/toolManager.svelte.js";
-import { screenToImagePixel, getImageOffset, updateViewportState } from "../core/imageLoader.js";
-import {
-  createLabelBox,
-  createOBBLabelBox,
-  createLabelBadge,
-  createDrawingBox,
-  type LabelBoxRect,
-  type LabelBadgeObjects,
-} from "../boxFactory.js";
-import { setBoxSelectedStyle } from "../styles/boxStyles.js";
-import { normalizeBbox, bboxToObb, screenToImage } from "../coordinates.js";
-import { updateBoxPosition, updateLabelBadgePosition, normalizeObbRectAfterModify } from "../boxUtils.js";
+import { getClassColor, hexToRgba, BOX_STYLE, type BoxRect } from "../styles/boxStyles.js";
+import { pixelToImage, createBboxFromPoints } from "../coordinates.js";
+import { getImageOffset } from "../core/imageLoader.js";
+import type { CanvasLabelObjects } from "../labels/labelManager.js";
 
-export interface CanvasLabelObjects {
-  rect: LabelBoxRect;
-  badge: LabelBadgeObjects;
-}
+// ============================================
+// 타입 정의
+// ============================================
 
 export interface MouseHandlerContext {
   fabricCanvas: Canvas;
-  imageObject: FabricImage | null;
+  imageObject: FabricImage;
   workspaceManager: WorkspaceManager;
   toolManager: ToolManager;
+  drawingBox: { value: FabricObject | null };
   labelBoxes: Map<string, CanvasLabelObjects>;
-  drawingBox: Rect | null;
 }
 
-// 패닝 상태
-let isPanning = false;
-let panStartX = 0;
-let panStartY = 0;
-let imgStartLeft = 0;
-let imgStartTop = 0;
-
-/**
- * 이미지 이동 (패닝)
- */
-function panImage(
-  pointerX: number,
-  pointerY: number,
-  imageObject: FabricImage,
-  fabricCanvas: Canvas,
-  workspaceManager: WorkspaceManager,
-  updateAllBoxPositions: () => void
-): void {
-  const deltaX = pointerX - panStartX;
-  const deltaY = pointerY - panStartY;
-
-  imageObject.set({
-    left: imgStartLeft + deltaX,
-    top: imgStartTop + deltaY,
-  });
-
-  updateViewportState(imageObject, fabricCanvas, workspaceManager);
-  updateAllBoxPositions();
-  fabricCanvas.requestRenderAll();
+export interface MouseHandlerState {
+  isDrawing: boolean;
+  startX: number;
+  startY: number;
+  currentClassId: number;
 }
 
+// ============================================
+// 마우스 이벤트 핸들러
+// ============================================
+
 /**
- * 마우스 다운 핸들러
+ * 마우스 다운 이벤트 - 박스 드로잉 시작
  */
 export function handleMouseDown(
-  opt: any,
+  e: { e: MouseEvent },
   context: MouseHandlerContext,
-  updateAllBoxPositions: () => void
+  state: MouseHandlerState
 ): void {
-  const { fabricCanvas, imageObject, workspaceManager, toolManager } = context;
+  const { fabricCanvas, imageObject, toolManager, drawingBox, workspaceManager } = context;
 
-  if (!fabricCanvas || !imageObject) return;
+  // 박스 도구가 아니면 무시
+  if (toolManager.currentTool !== 'box') return;
+  if (!imageObject) return;
+  
+  // 이미 선택된 박스가 있으면 새 박스 생성하지 않음 (선택 모드)
+  if (workspaceManager.selectedLabelId) return;
 
-  // Fabric.js v7: scenePoint를 사용하여 캔버스 좌표 가져오기
-  const pointer = opt.scenePoint || { x: 0, y: 0 };
-  const imageCoords = screenToImagePixel(pointer.x, pointer.y, imageObject);
+  const scale = imageObject.scaleX || 1;
+  const offset = getImageOffset(imageObject);
 
-  // 현재 선택된 객체가 있는지 확인 (박스 수정 중인지 체크)
-  const activeObject = fabricCanvas.getActiveObject();
-  const isModifyingBox = activeObject && (activeObject as any).data?.type === 'label';
+  // 캔버스 좌표 계산
+  const pointer = fabricCanvas.getScenePoint(e.e);
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y);
 
-  switch (toolManager.currentTool) {
-    case 'select':
-      // select 도구에서도 패닝 동작 (기본 동작)
-      // 하지만 박스가 선택되어 있으면 패닝하지 않음 (박스 이동/크기조절 허용)
-      if (!activeObject) {
-        isPanning = true;
-        panStartX = pointer.x;
-        panStartY = pointer.y;
-        imgStartLeft = imageObject.left || 0;
-        imgStartTop = imageObject.top || 0;
-        fabricCanvas.defaultCursor = 'grabbing';
-        fabricCanvas.hoverCursor = 'grabbing';
-      }
-      break;
+  state.isDrawing = true;
+  state.startX = imageCoords.x;
+  state.startY = imageCoords.y;
+  state.currentClassId = context.workspaceManager.selectedClassId ?? 0;
 
-    case 'box':
-      // 박스 수정 중이면 새 박스 생성 방지
-      if (isModifyingBox) {
-        console.log('Box modification in progress, skipping new box creation');
-        return;
-      }
-      // 박스 그리기 시작
-      toolManager.startDrawing(imageCoords);
-      break;
+  // 드로잉 박스 생성
+  const color = getClassColor(state.currentClassId);
+  const screenX = pointer.x;
+  const screenY = pointer.y;
 
-    case 'pan':
-      // 패닝 시작
-      isPanning = true;
-      panStartX = pointer.x;
-      panStartY = pointer.y;
-      imgStartLeft = imageObject.left || 0;
-      imgStartTop = imageObject.top || 0;
-      fabricCanvas.defaultCursor = 'grabbing';
-      fabricCanvas.hoverCursor = 'grabbing';
-      break;
-  }
-}
+  const rect = new Rect({
+    left: screenX,
+    top: screenY,
+    width: 0,
+    height: 0,
+    originX: 'left',
+    originY: 'top',
+    stroke: color,
+    strokeWidth: BOX_STYLE.strokeWidth,
+    fill: hexToRgba(color, BOX_STYLE.fillOpacity),
+    selectable: false,
+    evented: false,
+  });
 
-/**
- * 마우스 이동 핸들러
- */
-export function handleMouseMove(
-  opt: any,
-  context: MouseHandlerContext,
-  updateAllBoxPositions: () => void,
-  updateDrawingBox: () => void
-): void {
-  const { fabricCanvas, imageObject, toolManager } = context;
-
-  if (!fabricCanvas || !imageObject) return;
-
-  // Fabric.js v7: scenePoint를 사용하여 캔버스 좌표 가져오기
-  const pointer = opt.scenePoint || { x: 0, y: 0 };
-  const imageCoords = screenToImagePixel(pointer.x, pointer.y, imageObject);
-
-  // 현재 마우스 위치 업데이트 (toolManager에 저장 - Footer에서 사용)
-  toolManager.updateMousePosition(imageCoords.x, imageCoords.y);
-
-  // 패닝 중이면 이미지 이동
-  if (isPanning) {
-    panImage(pointer.x, pointer.y, imageObject, fabricCanvas, context.workspaceManager, updateAllBoxPositions);
-    return;
-  }
-
-  // 드로잉 중이면 좌표 업데이트 및 박스 렌더링
-  if (toolManager.isDrawing) {
-    toolManager.updateDrawing(imageCoords);
-    updateDrawingBox();
-  }
-}
-
-/**
- * 마우스 업 핸들러
- */
-export function handleMouseUp(
-  context: MouseHandlerContext,
-  createLabelFromDrawing: (start: { x: number; y: number }, end: { x: number; y: number }) => void,
-  removeDrawingBox: () => void
-): void {
-  const { fabricCanvas, imageObject, toolManager } = context;
-
-  if (!fabricCanvas || !imageObject) return;
-
-  // 패닝 종료
-  if (isPanning) {
-    isPanning = false;
-    // pan 도구일 때 커서 복원
-    if (toolManager.currentTool === 'pan') {
-      fabricCanvas.defaultCursor = 'grab';
-      fabricCanvas.hoverCursor = 'grab';
-    } else {
-      fabricCanvas.defaultCursor = 'default';
-      fabricCanvas.hoverCursor = 'default';
-    }
-    return;
-  }
-
-  if (toolManager.isDrawing) {
-    const result = toolManager.endDrawing();
-
-    // 박스 생성 완료
-    if (result.start && result.end && toolManager.currentTool === 'box') {
-      createLabelFromDrawing(result.start, result.end);
-    }
-
-    // 드로잉 박스 제거
-    removeDrawingBox();
-  }
-}
-
-/**
- * 드로잉 박스 업데이트
- */
-export function updateDrawingBoxRender(
-  context: MouseHandlerContext
-): Rect | null {
-  const { fabricCanvas, imageObject, toolManager, workspaceManager, drawingBox } = context;
-
-  if (!fabricCanvas || !toolManager.drawingStart || !toolManager.drawingCurrent) return null;
-
-  const scale = imageObject?.scaleX || 1;
-  const offset = getImageOffset(imageObject!);
-
-  // 기존 드로잉 박스 제거
-  if (drawingBox) {
-    fabricCanvas.remove(drawingBox);
-  }
-
-  // 새 드로잉 박스 생성
-  const newDrawingBox = createDrawingBox(
-    toolManager.drawingStart,
-    toolManager.drawingCurrent,
-    scale,
-    offset.x,
-    offset.y,
-    workspaceManager.selectedClassId
-  );
-
-  fabricCanvas.add(newDrawingBox);
-  fabricCanvas.requestRenderAll();
-
-  return newDrawingBox;
-}
-
-/**
- * 드로잉 박스 제거
- */
-export function removeDrawingBoxRender(
-  fabricCanvas: Canvas,
-  drawingBox: Rect | null
-): null {
-  if (drawingBox && fabricCanvas) {
-    fabricCanvas.remove(drawingBox);
-    fabricCanvas.requestRenderAll();
-  }
-  return null;
-}
-
-/**
- * 드로잉 완료 후 라벨 생성
- */
-export function createLabelFromDrawingCoords(
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  workspaceManager: WorkspaceManager
-): (BBAnnotation | OBBAnnotation) | null {
-  // 최소 크기 체크 (3픽셀 이상)
-  const width = Math.abs(end.x - start.x);
-  const height = Math.abs(end.y - start.y);
-  if (width < 3 || height < 3) {
-    console.log('Box too small, ignoring');
-    return null;
-  }
-
-  // bbox 정규화
-  const bbox = normalizeBbox(start.x, start.y, end.x, end.y);
-
-  // 고유 ID 생성
-  const id = `label-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-  if (workspaceManager.isOBBMode) {
-    const annotation: OBBAnnotation = {
-      id,
-      class_id: workspaceManager.selectedClassId,
-      obb: bboxToObb(bbox),
-    };
-
-    workspaceManager.addOBBAnnotation(annotation);
-    return annotation;
-  }
-
-  const annotation: BBAnnotation = {
-    id,
-    class_id: workspaceManager.selectedClassId,
-    bbox,
+  (rect as unknown as BoxRect).data = {
+    id: 'drawing',
+    classId: state.currentClassId,
+    color,
+    type: 'label',
+    shape: 'bb',
   };
 
-  workspaceManager.addBBAnnotation(annotation);
-  return annotation;
+  drawingBox.value = rect;
+  fabricCanvas.add(rect);
+  fabricCanvas.requestRenderAll();
 }
 
 /**
- * 도구 변경 시 커서 업데이트 (캔버스 + 모든 라벨 박스)
+ * 마우스 무브 이벤트 - 박스 드로잉 업데이트
  */
-export function updateCursor(
-  fabricCanvas: Canvas,
-  labelBoxes: Map<string, CanvasLabelObjects>,
-  currentTool: string
+export function handleMouseMove(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
 ): void {
-  let canvasCursor: string;
-  let boxHoverCursor: string;
-  let boxMoveCursor: string;
+  const { fabricCanvas, imageObject, drawingBox } = context;
 
-  switch (currentTool) {
-    case 'pan':
-      canvasCursor = 'grab';
-      boxHoverCursor = 'grab';
-      boxMoveCursor = 'grab';
-      break;
-    case 'box':
-      canvasCursor = 'crosshair';
-      boxHoverCursor = 'crosshair';
-      boxMoveCursor = 'crosshair';
-      break;
-    default:
-      canvasCursor = 'default';
-      boxHoverCursor = 'move';
-      boxMoveCursor = 'move';
+  if (!state.isDrawing || !drawingBox.value || !imageObject) return;
+
+  const scale = imageObject.scaleX || 1;
+  const offset = getImageOffset(imageObject);
+
+  // 캔버스 좌표 계산
+  const pointer = fabricCanvas.getScenePoint(e.e);
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y);
+
+  // 드로잉 박스 크기 업데이트 (스크린 좌표)
+  const startScreenX = state.startX * scale + offset.x;
+  const startScreenY = state.startY * scale + offset.y;
+  const currentScreenX = imageCoords.x * scale + offset.x;
+  const currentScreenY = imageCoords.y * scale + offset.y;
+
+  const width = Math.abs(currentScreenX - startScreenX);
+  const height = Math.abs(currentScreenY - startScreenY);
+  const left = Math.min(startScreenX, currentScreenX);
+  const top = Math.min(startScreenY, currentScreenY);
+
+  drawingBox.value.set({
+    left,
+    top,
+    width,
+    height,
+  });
+
+  drawingBox.value.setCoords();
+  fabricCanvas.requestRenderAll();
+}
+
+/**
+ * 마우스 업 이벤트 - 박스 드로잉 완료
+ */
+export function handleMouseUp(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): void {
+  const { fabricCanvas, imageObject, workspaceManager, drawingBox } = context;
+
+  if (!state.isDrawing || !drawingBox.value || !imageObject) {
+    state.isDrawing = false;
+    return;
   }
 
-  fabricCanvas.defaultCursor = canvasCursor;
-  fabricCanvas.hoverCursor = canvasCursor;
+  const scale = imageObject.scaleX || 1;
+  const offset = getImageOffset(imageObject);
 
-  // 모든 라벨 박스의 커서도 동기화
-  labelBoxes.forEach(({ rect }) => {
-    rect.hoverCursor = boxHoverCursor;
-    rect.moveCursor = boxMoveCursor;
+  // 캔버스 좌표 계산
+  const pointer = fabricCanvas.getScenePoint(e.e);
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y);
+
+  // 최소 크기 체크
+  const width = Math.abs(imageCoords.x - state.startX);
+  const height = Math.abs(imageCoords.y - state.startY);
+  
+  if (width < 5 || height < 5) {
+    // 너무 작으면 취소
+    fabricCanvas.remove(drawingBox.value);
+    drawingBox.value = null;
+    state.isDrawing = false;
+    fabricCanvas.requestRenderAll();
+    return;
+  }
+
+  // 이미지 좌표로 BBox 생성
+  const bbox = createBboxFromPoints(state.startX, state.startY, imageCoords.x, imageCoords.y);
+
+  console.log('[Draw] BBox created:', { xmin: bbox[0], ymin: bbox[1], xmax: bbox[2], ymax: bbox[3] });
+
+  // UUID 생성
+  const id = crypto.randomUUID();
+
+  // 워크스페이스에 추가
+  workspaceManager.addBBAnnotation({
+    id,
+    class_id: state.currentClassId,
+    bbox,
   });
+
+  // 드로잉 박스 제거
+  fabricCanvas.remove(drawingBox.value);
+  drawingBox.value = null;
+  state.isDrawing = false;
+  fabricCanvas.requestRenderAll();
+}
+
+/**
+ * 마우스 휠 이벤트 - 줌
+ */
+export function handleWheel(
+  e: { e: WheelEvent },
+  context: MouseHandlerContext
+): void {
+  // 줌 핸들러는 zoomHandler.ts에서 별도 처리
+}
+
+// ============================================
+// 커서 설정
+// ============================================
+
+/**
+ * 도구에 따른 커서 설정
+ */
+export function updateCursorForTool(
+  fabricCanvas: Canvas,
+  toolManager: ToolManager,
+  labelBoxes: Map<string, CanvasLabelObjects>
+): void {
+  const currentTool = toolManager.currentTool;
+
+  labelBoxes.forEach((objects) => {
+    if (currentTool === 'box') {
+      objects.rect.hoverCursor = 'crosshair';
+      objects.rect.moveCursor = 'crosshair';
+    } else if (currentTool === 'pan') {
+      objects.rect.hoverCursor = 'grab';
+      objects.rect.moveCursor = 'grab';
+    } else {
+      objects.rect.hoverCursor = 'move';
+      objects.rect.moveCursor = 'move';
+    }
+  });
+
+  if (currentTool === 'pan') {
+    fabricCanvas.defaultCursor = 'grab';
+    fabricCanvas.hoverCursor = 'grab';
+  } else if (currentTool === 'box') {
+    fabricCanvas.defaultCursor = 'crosshair';
+    fabricCanvas.hoverCursor = 'crosshair';
+  } else {
+    fabricCanvas.defaultCursor = 'default';
+    fabricCanvas.hoverCursor = 'default';
+  }
+
+  fabricCanvas.requestRenderAll();
 }

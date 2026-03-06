@@ -18,11 +18,9 @@
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-    updateDrawingBoxRender,
-    removeDrawingBoxRender,
-    createLabelFromDrawingCoords,
-    updateCursor,
-    type CanvasLabelObjects
+    updateCursorForTool,
+    type MouseHandlerContext,
+    type MouseHandlerState,
   } from "$lib/canvas/interaction/mouseHandlers.js";
 
   // 라벨 관리 모듈
@@ -30,7 +28,8 @@
     clearCanvasOverlays, 
     updateAllBoxPositions,
     renderLabels,
-    syncLabelChanges
+    syncLabelChanges,
+    type CanvasLabelObjects,
   } from "$lib/canvas/labels/labelManager.js";
 
   const workspaceManager = getSvelteContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
@@ -45,6 +44,12 @@
 
   // 드로잉 박스 상태
   let drawingBoxState = { value: null as Rect | null };
+  let mouseHandlerState: MouseHandlerState = {
+    isDrawing: false,
+    startX: 0,
+    startY: 0,
+    currentClassId: 0,
+  };
 
   // 라벨 박스 맵 (labelId -> render objects)
   let labelBoxes = new Map<string, CanvasLabelObjects>();
@@ -89,9 +94,15 @@
           fabricCanvas.requestRenderAll();
         }
       },
-      onMouseDown: (opt) => handleMouseDown(opt, getMouseHandlerContext(), updateAllBoxPositionsCallback),
-      onMouseMove: (opt) => handleMouseMove(opt, getMouseHandlerContext(), updateAllBoxPositionsCallback, updateDrawingBoxCallback),
-      onMouseUp: () => handleMouseUp(getMouseHandlerContext(), createLabelFromDrawingCallback, removeDrawingBoxCallback),
+      onMouseDown: (opt) => {
+        handleMouseDown(opt, getMouseHandlerContext(), mouseHandlerState);
+      },
+      onMouseMove: (opt) => {
+        handleMouseMove(opt, getMouseHandlerContext(), mouseHandlerState);
+      },
+      onMouseUp: (opt) => {
+        handleMouseUp(opt, getMouseHandlerContext(), mouseHandlerState);
+      },
       onSelectionCleared: () => workspaceManager.setSelectedLabelId(null),
     });
 
@@ -111,42 +122,16 @@
     };
   }
 
-  function getMouseHandlerContext() {
+  function getMouseHandlerContext(): MouseHandlerContext {
     return {
       fabricCanvas: fabricCanvas!,
-      imageObject: currentImageObject,
+      imageObject: currentImageObject!,
       workspaceManager,
       toolManager,
       labelBoxes,
-      drawingBox: drawingBoxState.value,
+      drawingBox: drawingBoxState,
     };
   }
-
-  // ============================================
-  // 콜백 함수들
-  // ============================================
-  const updateAllBoxPositionsCallback = () => {
-    if (fabricCanvas && currentImageObject) {
-      updateAllBoxPositions(getContext(), labelBoxes);
-    }
-  };
-
-  const updateDrawingBoxCallback = () => {
-    if (fabricCanvas) {
-      const result = updateDrawingBoxRender(getMouseHandlerContext());
-      drawingBoxState.value = result;
-    }
-  };
-
-  const removeDrawingBoxCallback = () => {
-    if (fabricCanvas) {
-      drawingBoxState.value = removeDrawingBoxRender(fabricCanvas, drawingBoxState.value);
-    }
-  };
-
-  const createLabelFromDrawingCallback = (start: { x: number; y: number }, end: { x: number; y: number }) => {
-    createLabelFromDrawingCoords(start, end, workspaceManager);
-  };
 
   // ============================================
   // 이미지 로드
@@ -235,7 +220,7 @@
   // 도구 변경 시 커서 업데이트
   $effect(() => {
     if (fabricCanvas && isInitialized) {
-      updateCursor(fabricCanvas, labelBoxes, toolManager.currentTool);
+      updateCursorForTool(fabricCanvas, toolManager, labelBoxes);
     }
   });
 

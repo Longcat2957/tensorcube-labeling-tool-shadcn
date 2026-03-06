@@ -1,148 +1,177 @@
 /**
- * 박스 유틸리티 함수
- * 위치 업데이트 및 기타 유틸리티
+ * 박스 유틸리티
+ * 위치 업데이트 및 기타 유틸리티 함수
+ * 
+ * 핵심 원칙:
+ * - 모든 좌표는 이미지 픽셀 단위 (실수)
+ * - 스크린 변환은 렌더링 시에만 수행
  */
 
-import type { LabelBoxRect, LabelBadgeObjects } from "./boxFactory.js";
-import { imageToScreen, screenToObb } from "./coordinates.js";
+import type { FabricObject } from "fabric";
+import type { BoxRect, BadgeObjects } from "./styles/boxStyles.js";
+import { bboxToScreen, obbToScreen, type ImageBBox, type ImageOBB } from "./coordinates.js";
+
+// ============================================
+// 박스 위치 업데이트
+// ============================================
 
 /**
- * 박스 위치 업데이트 (줌/패닝 후)
+ * BB Rect 위치 업데이트
+ */
+export function updateBBRectPosition(
+  rect: BoxRect,
+  bbox: ImageBBox,
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): void {
+  const screen = bboxToScreen(bbox, scale, offsetX, offsetY);
+  
+  rect.set({
+    left: screen.left,
+    top: screen.top,
+    width: screen.width,
+    height: screen.height,
+  });
+  
+  rect.setCoords();
+}
+
+/**
+ * OBB Rect 위치 업데이트
+ */
+export function updateOBBRectPosition(
+  rect: BoxRect,
+  obb: ImageOBB,
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): void {
+  const screen = obbToScreen(obb, scale, offsetX, offsetY);
+  
+  rect.set({
+    left: screen.left,
+    top: screen.top,
+    width: screen.width,
+    height: screen.height,
+    angle: screen.angle,
+  });
+  
+  rect.setCoords();
+}
+
+/**
+ * 통합 박스 위치 업데이트
  */
 export function updateBoxPosition(
-  rect: LabelBoxRect,
-  coords: [number, number, number, number] | [number, number, number, number, number],
+  rect: BoxRect,
+  coords: ImageBBox | ImageOBB,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
+  offsetX: number,
+  offsetY: number
 ): void {
-  if (rect.data.shape === 'obb' && coords.length === 5) {
-    const [cx, cy, width, height, angle] = coords;
-    rect.set({
-      left: cx * scale + imageOffsetX,
-      top: cy * scale + imageOffsetY,
-      width: width * scale,
-      height: height * scale,
-      scaleX: 1,
-      scaleY: 1,
-      angle,
-      originX: 'center',
-      originY: 'center',
-    });
+  if (rect.data.shape === 'bb') {
+    updateBBRectPosition(rect, coords as ImageBBox, scale, offsetX, offsetY);
   } else {
-    const bbox = coords as [number, number, number, number];
-    const screenCoords = imageToScreen(bbox, scale, imageOffsetX, imageOffsetY);
-    rect.set({
-      left: screenCoords.left,
-      top: screenCoords.top,
-      width: screenCoords.width,
-      height: screenCoords.height,
-      scaleX: 1,
-      scaleY: 1,
-      originX: 'left',
-      originY: 'top',
-      angle: 0,
-    });
+    updateOBBRectPosition(rect, coords as ImageOBB, scale, offsetX, offsetY);
   }
-  rect.setCoords();
 }
 
-/**
- * OBB 뱃지 앵커 위치 계산
- */
-function getObbBadgeAnchor(
-  obb: [number, number, number, number, number],
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): { left: number; top: number } {
-  const [cx, cy, width, height, angle] = obb;
-  const centerX = cx * scale + imageOffsetX;
-  const centerY = cy * scale + imageOffsetY;
-  const halfWidth = (width * scale) / 2;
-  const halfHeight = (height * scale) / 2;
-  const rad = (angle * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
+// ============================================
+// 뱃지 위치 업데이트
+// ============================================
 
-  const rotatePoint = (x: number, y: number) => ({
-    x: centerX + x * cos - y * sin,
-    y: centerY + x * sin + y * cos,
-  });
-
-  const corners = [
-    rotatePoint(-halfWidth, -halfHeight),
-    rotatePoint(halfWidth, -halfHeight),
-    rotatePoint(halfWidth, halfHeight),
-    rotatePoint(-halfWidth, halfHeight),
-  ];
-
-  const topY = Math.min(...corners.map((corner) => corner.y));
-  const topCandidates = corners.filter((corner) => Math.abs(corner.y - topY) < 0.001);
-  const anchor = topCandidates.sort((a, b) => a.x - b.x)[0] ?? corners[0];
-
-  return {
-    left: anchor.x,
-    top: anchor.y,
-  };
-}
+const BADGE_HEIGHT = 22;
+const BADGE_PADDING = 8;
+const BADGE_FONT_SIZE = 12;
 
 /**
- * 라벨 뱃지 위치 업데이트
+ * 뱃지 위치 업데이트
+ * bbox의 left-top point 위쪽에 표시
  */
-export function updateLabelBadgePosition(
-  badge: LabelBadgeObjects,
-  coords: [number, number, number, number] | [number, number, number, number, number],
+export function updateBadgePosition(
+  badge: BadgeObjects,
+  coords: ImageBBox | ImageOBB,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
+  offsetX: number,
+  offsetY: number,
+  isBB: boolean,
+  className: string = ''
 ): void {
-  const LABEL_BADGE_HEIGHT = 22;
-  const LABEL_BADGE_HORIZONTAL_PADDING = 8;
-
-  const screenAnchor = coords.length === 5
-    ? getObbBadgeAnchor(coords, scale, imageOffsetX, imageOffsetY)
-    : imageToScreen(coords, scale, imageOffsetX, imageOffsetY);
-  const textWidth = badge.text.width ?? 0;
-
+  let leftX: number, topY: number;
+  
+  if (isBB) {
+    // BB: left-top point
+    const [xmin, ymin] = coords as ImageBBox;
+    leftX = xmin;
+    topY = ymin;
+  } else {
+    // OBB: 중심점 사용
+    [leftX, topY] = coords as ImageOBB;
+  }
+  
+  const screenX = leftX * scale + offsetX;
+  const screenY = topY * scale + offsetY - BADGE_HEIGHT * scale;
+  
+  // 텍스트 너비 계산
+  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * scale;
+  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * scale;
+  
   badge.background.set({
-    left: screenAnchor.left,
-    top: screenAnchor.top - LABEL_BADGE_HEIGHT,
-    width: Math.max(48, textWidth + LABEL_BADGE_HORIZONTAL_PADDING * 2),
+    left: screenX,
+    top: screenY,
+    width: badgeWidth,
+    height: BADGE_HEIGHT * scale,
   });
-
+  
   badge.text.set({
-    left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING,
-    top: screenAnchor.top - LABEL_BADGE_HEIGHT + 5,
+    left: screenX + BADGE_PADDING * scale,
+    top: screenY + (BADGE_HEIGHT / 2) * scale,
   });
+}
 
-  badge.background.setCoords();
-  badge.text.setCoords();
+// ============================================
+// 스크린 좌표에서 이미지 좌표로 변환 (수정 완료 후)
+// ============================================
+
+/**
+ * Fabric.js Rect에서 BB 좌표 추출 (수정 완료 후 호출)
+ * BB: originX='left', originY='top'
+ */
+export function extractBBoxFromRect(
+  rect: FabricObject,
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): ImageBBox {
+  const left = (rect.left - offsetX) / scale;
+  const top = (rect.top - offsetY) / scale;
+  const width = rect.width * rect.scaleX / scale;
+  const height = rect.height * rect.scaleY / scale;
+  
+  return [
+    left,
+    top,
+    left + width,
+    top + height,
+  ];
 }
 
 /**
- * OBB 박스 수정 후 정규화
+ * Fabric.js Rect에서 OBB 좌표 추출 (수정 완료 후 호출)
+ * OBB: originX='center', originY='center'
  */
-export function normalizeObbRectAfterModify(
-  rect: LabelBoxRect,
-  obb: [number, number, number, number, number],
+export function extractOBBFromRect(
+  rect: FabricObject,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): void {
-  const [cx, cy, width, height, angle] = obb;
-
-  rect.set({
-    left: cx * scale + imageOffsetX,
-    top: cy * scale + imageOffsetY,
-    width: width * scale,
-    height: height * scale,
-    scaleX: 1,
-    scaleY: 1,
-    angle,
-    originX: 'center',
-    originY: 'center',
-  });
-
-  rect.setCoords();
+  offsetX: number,
+  offsetY: number
+): ImageOBB {
+  const cx = (rect.left - offsetX) / scale;
+  const cy = (rect.top - offsetY) / scale;
+  const width = rect.width * rect.scaleX / scale;
+  const height = rect.height * rect.scaleY / scale;
+  const angle = rect.angle;
+  
+  return [cx, cy, width, height, angle];
 }

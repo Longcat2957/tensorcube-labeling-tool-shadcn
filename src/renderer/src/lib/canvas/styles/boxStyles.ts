@@ -1,28 +1,37 @@
 /**
  * 박스 스타일 유틸리티
- * 색상, 스타일 관련 함수
+ * 
+ * 핵심 원칙:
+ * - strokeWidth=0으로 설정 (Fabric.js 스트로크 보정 문제 제거)
+ * - 테두리는 별도 레이어로 처리하지 않고, stroke 직접 사용
+ * - 모든 좌표는 실수 기반
  */
 
-import { Shadow, Rect } from "fabric";
+import type { FabricObject } from "fabric";
+import { Shadow } from "fabric";
 
-/** 클래스별 색상 반환 */
+// ============================================
+// 타입 정의
+// ============================================
+
+/** 클래스 ID에 따른 색상 */
 export function getClassColor(classId: number): string {
   const colors = [
-    "#3b82f6",
-    "#ef4444",
-    "#22c55e",
-    "#f59e0b",
-    "#8b5cf6",
-    "#ec4899",
-    "#06b6d4",
-    "#84cc16",
-    "#f97316",
-    "#6366f1",
+    "#3b82f6", // blue
+    "#ef4444", // red
+    "#22c55e", // green
+    "#f59e0b", // amber
+    "#8b5cf6", // violet
+    "#ec4899", // pink
+    "#06b6d4", // cyan
+    "#84cc16", // lime
+    "#f97316", // orange
+    "#6366f1", // indigo
   ];
   return colors[classId % colors.length];
 }
 
-/** hex 색상 + 알파 → rgba 문자열 */
+/** hex 색상을 rgba로 변환 */
 export function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -30,21 +39,30 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// 박스 스타일 옵션
-export interface BoxStyleOptions {
-  strokeWidth?: number;
-  opacity?: number;
-  fillOpacity?: number;
-}
+// ============================================
+// 박스 스타일 상수
+// ============================================
 
-// 기본 박스 스타일 (normal)
-export const DEFAULT_BOX_STYLE: BoxStyleOptions = {
-  strokeWidth: 2,
-  opacity: 1,
-  fillOpacity: 0.12,
-};
+/** 기본 박스 스타일 */
+export const BOX_STYLE = {
+  strokeWidth: 2,         // 테두리 두께
+  strokeOpacity: 1,       // 테두리 불투명도
+  fillOpacity: 0.15,      // 채우기 불투명도
+} as const;
 
-export interface LabelBoxData {
+/** 선택된 박스 스타일 */
+export const BOX_STYLE_SELECTED = {
+  strokeWidth: 3,
+  strokeOpacity: 1,
+  fillOpacity: 0.25,
+} as const;
+
+// ============================================
+// Fabric.js Rect 타입 확장
+// ============================================
+
+/** 박스 데이터 메타데이터 */
+export interface BoxData {
   id: string;
   classId: number;
   color: string;
@@ -52,25 +70,32 @@ export interface LabelBoxData {
   shape: "bb" | "obb";
 }
 
-export type LabelBoxRect = Rect & {
-  data: LabelBoxData;
+/** 박스 Rect 타입 */
+export type BoxRect = FabricObject & {
+  data: BoxData;
 };
+
+/** 뱃지 객체 */
+export interface BadgeObjects {
+  background: FabricObject;
+  text: FabricObject;
+}
+
+// ============================================
+// 스타일 적용 함수
+// ============================================
 
 /**
  * 박스 선택 상태 스타일 적용
- *
- * Normal:   class color stroke / 12% fill / 작은 손잡이
- * Selected: 흰색 stroke + class color glow / 25% fill / 흰색 손잡이
  */
-export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void {
+export function applySelectedStyle(rect: BoxRect, selected: boolean): void {
   const color = rect.data.color;
-
+  
   if (selected) {
     rect.set({
       stroke: '#ffffff',
-      strokeWidth: 2.5,
-      fill: hexToRgba(color, 0.25),
-      strokeDashArray: undefined,
+      strokeWidth: BOX_STYLE_SELECTED.strokeWidth,
+      fill: hexToRgba(color, BOX_STYLE_SELECTED.fillOpacity),
       shadow: new Shadow({
         color: hexToRgba(color, 0.8),
         blur: 12,
@@ -84,20 +109,22 @@ export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void
   } else {
     rect.set({
       stroke: color,
-      strokeWidth: 2,
-      fill: hexToRgba(color, 0.12),
-      strokeDashArray: undefined,
+      strokeWidth: BOX_STYLE.strokeWidth,
+      fill: hexToRgba(color, BOX_STYLE.fillOpacity),
       shadow: null,
       cornerColor: '#ffffff',
       cornerStrokeColor: color,
       cornerSize: 9,
     });
   }
-
+  
   rect.setCoords();
 }
 
-// 라벨 뱃지 스타일 상수
-export const LABEL_BADGE_HEIGHT = 22;
-export const LABEL_BADGE_HORIZONTAL_PADDING = 8;
-export const LABEL_BADGE_FONT_SIZE = 12;
+// ============================================
+// 뱃지 상수
+// ============================================
+
+export const BADGE_HEIGHT = 22;
+export const BADGE_PADDING = 8;
+export const BADGE_FONT_SIZE = 12;

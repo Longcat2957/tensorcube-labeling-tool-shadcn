@@ -1,59 +1,126 @@
 /**
  * 좌표 변환 유틸리티
  * 이미지 픽셀 좌표와 스크린 좌표 간 변환
+ * 
+ * 핵심 원칙:
+ * - 모든 좌표는 실수로 저장 (Math.round 사용 안함)
+ * - 이미지 좌표 = 원본 픽셀 좌표
+ * - 스크린 좌표 = Fabric.js 캔버스 좌표
  */
 
+// ============================================
+// 타입 정의
+// ============================================
+
+/** 이미지 좌표 (픽셀 단위, 실수) */
+export interface ImageCoords {
+  x: number;
+  y: number;
+}
+
+/** 이미지 BBox (xmin, ymin, xmax, ymax, 실수) */
+export type ImageBBox = [number, number, number, number];
+
+/** 이미지 OBB (cx, cy, width, height, angle, 실수) */
+export type ImageOBB = [number, number, number, number, number];
+
+/** 스크린 좌표 (Fabric.js 캔버스 좌표) */
+export interface ScreenCoords {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+// ============================================
+// 기본 변환 함수
+// ============================================
+
 /**
- * 이미지 좌표를 스크린 좌표로 변환
- * @param imageCoords - 이미지 픽셀 좌표 [xmin, ymin, xmax, ymax]
- * @param scale - 현재 줌 스케일
- * @param imageOffsetX - 이미지의 화면상 좌상단 X 좌표
- * @param imageOffsetY - 이미지의 화면상 좌상단 Y 좌표
+ * 이미지 BBox를 스크린 좌표로 변환
+ * BB: originX='left', originY='top'
  */
-export function imageToScreen(
-  imageCoords: [number, number, number, number],
+export function bboxToScreen(
+  bbox: ImageBBox,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): { left: number; top: number; width: number; height: number } {
-  const [xmin, ymin, xmax, ymax] = imageCoords;
+  offsetX: number,
+  offsetY: number
+): ScreenCoords {
+  const [xmin, ymin, xmax, ymax] = bbox;
   return {
-    left: xmin * scale + imageOffsetX,
-    top: ymin * scale + imageOffsetY,
+    left: xmin * scale + offsetX,
+    top: ymin * scale + offsetY,
     width: (xmax - xmin) * scale,
     height: (ymax - ymin) * scale,
   };
 }
 
 /**
- * 스크린 좌표를 이미지 좌표로 변환
- * @param screenCoords - 스크린 좌표 { left, top, width, height }
- * @param scale - 현재 줌 스케일
- * @param imageOffsetX - 이미지의 화면상 좌상단 X 좌표
- * @param imageOffsetY - 이미지의 화면상 좌상단 Y 좌표
+ * 스크린 좌표를 이미지 BBox로 변환
  */
-export function screenToImage(
-  screenCoords: { left: number; top: number; width: number; height: number },
+export function screenToBbox(
+  screen: ScreenCoords,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): [number, number, number, number] {
-  const xmin = (screenCoords.left - imageOffsetX) / scale;
-  const ymin = (screenCoords.top - imageOffsetY) / scale;
-  const xmax = (screenCoords.left + screenCoords.width - imageOffsetX) / scale;
-  const ymax = (screenCoords.top + screenCoords.height - imageOffsetY) / scale;
+  offsetX: number,
+  offsetY: number
+): ImageBBox {
+  const xmin = (screen.left - offsetX) / scale;
+  const ymin = (screen.top - offsetY) / scale;
+  const xmax = (screen.left + screen.width - offsetX) / scale;
+  const ymax = (screen.top + screen.height - offsetY) / scale;
   return [xmin, ymin, xmax, ymax];
 }
 
 /**
- * 두 점에서 bbox 좌표 계산 (정규화: xmin < xmax, ymin < ymax)
+ * 이미지 OBB를 스크린 좌표로 변환
+ * OBB: originX='center', originY='center'
  */
-export function normalizeBbox(
+export function obbToScreen(
+  obb: ImageOBB,
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): { left: number; top: number; width: number; height: number; angle: number } {
+  const [cx, cy, width, height, angle] = obb;
+  return {
+    left: cx * scale + offsetX,
+    top: cy * scale + offsetY,
+    width: width * scale,
+    height: height * scale,
+    angle,
+  };
+}
+
+/**
+ * 스크린 좌표를 이미지 OBB로 변환
+ */
+export function screenToObb(
+  screen: { left: number; top: number; width: number; height: number; angle: number },
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): ImageOBB {
+  const cx = (screen.left - offsetX) / scale;
+  const cy = (screen.top - offsetY) / scale;
+  const width = screen.width / scale;
+  const height = screen.height / scale;
+  const angle = screen.angle;
+  return [cx, cy, width, height, angle];
+}
+
+// ============================================
+// 팩토리 함수
+// ============================================
+
+/**
+ * 두 점으로 BBox 생성 (드로잉 완료 시)
+ */
+export function createBboxFromPoints(
   x1: number,
   y1: number,
   x2: number,
   y2: number
-): [number, number, number, number] {
+): ImageBBox {
   return [
     Math.min(x1, x2),
     Math.min(y1, y2),
@@ -63,12 +130,9 @@ export function normalizeBbox(
 }
 
 /**
- * BBOX를 OBB로 변환 (angle=0)
+ * BBox를 OBB로 변환 (회전 없음)
  */
-export function bboxToObb(
-  bbox: [number, number, number, number],
-  angle = 0
-): [number, number, number, number, number] {
+export function bboxToObb(bbox: ImageBBox, angle: number = 0): ImageOBB {
   const [xmin, ymin, xmax, ymax] = bbox;
   return [
     (xmin + xmax) / 2,
@@ -80,116 +144,47 @@ export function bboxToObb(
 }
 
 /**
- * OBB를 BBOX로 변환 (회전 고려 안함)
+ * OBB를 BBox로 변환 (회전 무시)
  */
-export function obbToBbox(
-  obb: [number, number, number, number, number]
-): [number, number, number, number] {
+export function obbToBbox(obb: ImageOBB): ImageBBox {
   const [cx, cy, width, height] = obb;
-  const halfWidth = width / 2;
-  const halfHeight = height / 2;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  return [cx - halfW, cy - halfH, cx + halfW, cy + halfH];
+}
 
-  return [
-    cx - halfWidth,
-    cy - halfHeight,
-    cx + halfWidth,
-    cy + halfHeight,
-  ];
+// ============================================
+// 스케일 변환
+// ============================================
+
+/**
+ * 픽셀 좌표를 이미지 좌표로 변환 (마우스 좌표 등)
+ */
+export function pixelToImage(
+  pixelX: number,
+  pixelY: number,
+  scale: number,
+  offsetX: number,
+  offsetY: number
+): ImageCoords {
+  return {
+    x: (pixelX - offsetX) / scale,
+    y: (pixelY - offsetY) / scale,
+  };
 }
 
 /**
- * 스크린 좌표에서 OBB 좌표로 변환 (회전 박스용)
+ * 이미지 좌표를 픽셀 좌표로 변환
  */
-export function screenToObb(
-  rect: {
-    left?: number;
-    top?: number;
-    width?: number;
-    height?: number;
-    scaleX?: number;
-    scaleY?: number;
-    angle?: number;
-  },
+export function imageToPixel(
+  imageX: number,
+  imageY: number,
   scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): [number, number, number, number, number] {
-  const width = ((rect.width ?? 0) * (rect.scaleX ?? 1)) / scale;
-  const height = ((rect.height ?? 0) * (rect.scaleY ?? 1)) / scale;
-  const cx = ((rect.left ?? 0) - imageOffsetX) / scale;
-  const cy = ((rect.top ?? 0) - imageOffsetY) / scale;
-  const angle = rect.angle ?? 0;
-
-  return [cx, cy, width, height, angle];
-}
-
-/**
- * Fabric.js Rect에서 정확한 BB 좌표 추출 (strokeWidth 보정 포함)
- * BB는 originX: 'left', originY: 'top' 사용
- * strokeWidth가 중심에 그려지므로 실제 박스 크기에서 보정 필요
- */
-export function getAccurateBBoxFromRect(
-  rect: {
-    left?: number;
-    top?: number;
-    width?: number;
-    height?: number;
-    scaleX?: number;
-    scaleY?: number;
-    strokeWidth?: number;
-  },
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): [number, number, number, number] {
-  const strokeWidth = rect.strokeWidth ?? 2;
-  
-  // Fabric.js에서 strokeWidth는 경계 중심에 그려짐
-  // 실제 픽셀 좌표에서 스트로크 두께의 절반만큼 보정
-  const pixelLeft = (rect.left ?? 0) + strokeWidth / 2;
-  const pixelTop = (rect.top ?? 0) + strokeWidth / 2;
-  const pixelWidth = (rect.width ?? 0) * (rect.scaleX ?? 1) - strokeWidth;
-  const pixelHeight = (rect.height ?? 0) * (rect.scaleY ?? 1) - strokeWidth;
-
-  return screenToImage(
-    { left: pixelLeft, top: pixelTop, width: pixelWidth, height: pixelHeight },
-    scale,
-    imageOffsetX,
-    imageOffsetY
-  );
-}
-
-/**
- * Fabric.js Rect에서 정확한 OBB 좌표 추출 (strokeWidth 보정 포함)
- * OBB는 originX: 'center', originY: 'center' 사용
- */
-export function getAccurateOBBFromRect(
-  rect: {
-    left?: number;
-    top?: number;
-    width?: number;
-    height?: number;
-    scaleX?: number;
-    scaleY?: number;
-    angle?: number;
-    strokeWidth?: number;
-  },
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): [number, number, number, number, number] {
-  const strokeWidth = rect.strokeWidth ?? 2;
-  
-  // OBB는 center origin이므로 left/top이 중심점
-  // width/height에서 스트로크 두께를 뺌
-  const pixelWidth = (rect.width ?? 0) * (rect.scaleX ?? 1) - strokeWidth;
-  const pixelHeight = (rect.height ?? 0) * (rect.scaleY ?? 1) - strokeWidth;
-  
-  const cx = ((rect.left ?? 0) - imageOffsetX) / scale;
-  const cy = ((rect.top ?? 0) - imageOffsetY) / scale;
-  const width = pixelWidth / scale;
-  const height = pixelHeight / scale;
-  const angle = rect.angle ?? 0;
-
-  return [cx, cy, width, height, angle];
+  offsetX: number,
+  offsetY: number
+): ImageCoords {
+  return {
+    x: imageX * scale + offsetX,
+    y: imageY * scale + offsetY,
+  };
 }
