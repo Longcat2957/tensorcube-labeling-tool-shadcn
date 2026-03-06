@@ -4,11 +4,12 @@ import type {
   UpdateWorkspaceOptions,
   ImageInfo, 
   LabelData, 
-  BBAnnotation 
+  BBAnnotation,
+  OBBAnnotation 
 } from '../../../../shared/types';
 
 // Re-export BBAnnotation for use in other components
-export type { BBAnnotation } from '../../../../shared/types';
+export type { BBAnnotation, OBBAnnotation } from '../../../../shared/types';
 
 // 워크스페이스 상태
 let workspacePath = $state<string | null>(null);
@@ -42,6 +43,9 @@ const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== n
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null);
 const canUndo = $derived(labelHistoryPast.length > 0);
 const canRedo = $derived(labelHistoryFuture.length > 0);
+const labelingType = $derived(workspaceConfig?.labeling_type ?? 1);
+const isBBMode = $derived((workspaceConfig?.labeling_type ?? 1) === 1);
+const isOBBMode = $derived((workspaceConfig?.labeling_type ?? 1) === 2);
 
 // 클래스 리스트 (UI용으로 변환)
 const classList = $derived(() => {
@@ -327,6 +331,28 @@ function addBBAnnotation(annotation: BBAnnotation): void {
   scheduleAutosave();
 }
 
+function addOBBAnnotation(annotation: OBBAnnotation): void {
+  pushHistorySnapshot();
+
+  if (!currentLabelData) {
+    currentLabelData = {
+      image_info: {
+        filename: currentImage?.filename || '',
+        width: imageWidth,
+        height: imageHeight
+      },
+      annotations: [annotation]
+    };
+  } else {
+    currentLabelData = {
+      ...currentLabelData,
+      annotations: [...currentLabelData.annotations, annotation]
+    };
+  }
+
+  scheduleAutosave();
+}
+
 function deleteLabel(labelId: string): void {
   if (!currentLabelData) return;
   if (!currentLabelData.annotations.some((ann) => ann.id === labelId)) return;
@@ -350,6 +376,11 @@ function getBBAnnotationById(labelId: string): BBAnnotation | undefined {
   return currentLabelData.annotations.find(ann => ann.id === labelId) as BBAnnotation | undefined;
 }
 
+function getOBBAnnotationById(labelId: string): OBBAnnotation | undefined {
+  if (!currentLabelData) return undefined;
+  return currentLabelData.annotations.find(ann => ann.id === labelId) as OBBAnnotation | undefined;
+}
+
 function updateBBAnnotation(labelId: string, bbox: [number, number, number, number]): void {
   if (!currentLabelData) return;
   const ann = currentLabelData.annotations.find(a => a.id === labelId) as BBAnnotation | undefined;
@@ -370,6 +401,33 @@ function updateBBAnnotation(labelId: string, bbox: [number, number, number, numb
       return {
         ...annotation,
         bbox,
+      };
+    }),
+  };
+
+  scheduleAutosave();
+}
+
+function updateOBBAnnotation(labelId: string, obb: [number, number, number, number, number]): void {
+  if (!currentLabelData) return;
+  const ann = currentLabelData.annotations.find(a => a.id === labelId) as OBBAnnotation | undefined;
+  if (!ann) return;
+
+  const hasChanged = ann.obb.some((value, index) => value !== obb[index]);
+  if (!hasChanged) return;
+
+  pushHistorySnapshot();
+
+  currentLabelData = {
+    ...currentLabelData,
+    annotations: currentLabelData.annotations.map((annotation) => {
+      if (annotation.id !== labelId || !('obb' in annotation)) {
+        return annotation;
+      }
+
+      return {
+        ...annotation,
+        obb,
       };
     }),
   };
@@ -415,6 +473,9 @@ export function createWorkspaceManager() {
     get selectedLabelId() { return selectedLabelId; },
     get canUndo() { return canUndo; },
     get canRedo() { return canRedo; },
+    get labelingType() { return labelingType; },
+    get isBBMode() { return isBBMode; },
+    get isOBBMode() { return isOBBMode; },
     
     // 캔버스 상태
     get zoomLevel() { return zoomLevel; },
@@ -440,9 +501,12 @@ export function createWorkspaceManager() {
     // 라벨 관리 메서드
     setSelectedLabelId,
     addBBAnnotation,
+    addOBBAnnotation,
     updateBBAnnotation,
+    updateOBBAnnotation,
     deleteLabel,
     getBBAnnotationById,
+    getOBBAnnotationById,
     undo,
     redo,
     

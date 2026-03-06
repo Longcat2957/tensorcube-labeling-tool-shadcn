@@ -6,6 +6,7 @@
   import { KEYBOARD_MANAGER_KEY, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
   import { 
     createLabelBox, 
+    createOBBLabelBox,
     createLabelBadge,
     createDrawingBox, 
     type LabelBadgeObjects,
@@ -14,9 +15,12 @@
     updateLabelBadgePosition,
     setBoxSelectedStyle,
     normalizeBbox,
-    screenToImage
+    screenToImage,
+    bboxToObb,
+    screenToObb,
+    normalizeObbRectAfterModify
   } from "$lib/canvas/boxRenderer.js";
-  import type { BBAnnotation } from "$lib/stores/workspace.svelte.js";
+  import type { BBAnnotation, OBBAnnotation } from "$lib/stores/workspace.svelte.js";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
   const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
@@ -308,14 +312,24 @@
     // 고유 ID 생성
     const id = `label-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // BBAnnotation 생성
+    if (workspaceManager.isOBBMode) {
+      const annotation: OBBAnnotation = {
+        id,
+        class_id: workspaceManager.selectedClassId,
+        obb: bboxToObb(bbox),
+      };
+
+      workspaceManager.addOBBAnnotation(annotation);
+      console.log('OBB label created:', annotation);
+      return;
+    }
+
     const annotation: BBAnnotation = {
       id,
       class_id: workspaceManager.selectedClassId,
       bbox,
     };
 
-    // 워크스페이스에 추가
     workspaceManager.addBBAnnotation(annotation);
 
     console.log('Label created:', annotation);
@@ -324,7 +338,7 @@
   /**
    * 캔버스에 라벨 박스 추가
    */
-  function addBoxToCanvas(annotation: BBAnnotation): void {
+  function addBoxToCanvas(annotation: BBAnnotation | OBBAnnotation): void {
     if (!fabricCanvas || !currentImageObject) return;
 
     const existingObjects = labelBoxes.get(annotation.id);
@@ -339,7 +353,9 @@
     const offset = getImageOffset();
 
     const className = workspaceManager.workspaceConfig?.names?.[annotation.class_id] ?? `Class ${annotation.class_id}`;
-    const rect = createLabelBox(annotation, scale, offset.x, offset.y);
+    const rect = 'bbox' in annotation
+      ? createLabelBox(annotation, scale, offset.x, offset.y)
+      : createOBBLabelBox(annotation, scale, offset.x, offset.y);
     const badge = createLabelBadge(annotation, className, scale, offset.x, offset.y);
     
     // 선택 이벤트 핸들러
@@ -370,28 +386,44 @@
       const offset = getImageOffset();
 
       // rect의 현재 스크린 좌표 → 이미지 픽셀 좌표로 역변환
-      const newBbox = screenToImage(
-        {
-          left: rect.left,
-          top: rect.top,
-          width: rect.getScaledWidth(),
-          height: rect.getScaledHeight(),
-        },
-        scale,
-        offset.x,
-        offset.y
-      );
+      if ('obb' in annotation) {
+        const newObb = screenToObb(rect, scale, offset.x, offset.y);
+        workspaceManager.updateOBBAnnotation(annotation.id, newObb);
+        normalizeObbRectAfterModify(rect, newObb, scale, offset.x, offset.y);
+      } else {
+        const newBbox = screenToImage(
+          {
+            left: rect.left,
+            top: rect.top,
+            width: rect.getScaledWidth(),
+            height: rect.getScaledHeight(),
+          },
+          scale,
+          offset.x,
+          offset.y
+        );
 
-      workspaceManager.updateBBAnnotation(annotation.id, newBbox);
+        workspaceManager.updateBBAnnotation(annotation.id, newBbox);
+      }
 
       // 뱃지 위치도 rect에 맞춰 동기화
       const objects = labelBoxes.get(annotation.id);
       if (objects) {
-        updateLabelBadgePosition(objects.badge, newBbox, scale, offset.x, offset.y);
+        if ('obb' in annotation) {
+          const updated = workspaceManager.getOBBAnnotationById(annotation.id);
+          if (updated) {
+            updateLabelBadgePosition(objects.badge, updated.obb, scale, offset.x, offset.y);
+          }
+        } else {
+          const updated = workspaceManager.getBBAnnotationById(annotation.id);
+          if (updated) {
+            updateLabelBadgePosition(objects.badge, updated.bbox, scale, offset.x, offset.y);
+          }
+        }
       }
       rect.setCoords();
       fabricCanvas?.requestRenderAll();
-      console.log('Box modified:', annotation.id, newBbox);
+      console.log('Box modified:', annotation.id);
     });
 
     if (workspaceManager.selectedLabelId === annotation.id) {
@@ -446,10 +478,14 @@
     const offset = getImageOffset();
 
     labelBoxes.forEach((objects, labelId) => {
-      const annotation = workspaceManager.getBBAnnotationById(labelId);
+      const bbAnnotation = workspaceManager.getBBAnnotationById(labelId);
+      const obbAnnotation = workspaceManager.getOBBAnnotationById(labelId);
+      const annotation = bbAnnotation ?? obbAnnotation;
+
       if (annotation) {
-        updateBoxPosition(objects.rect, annotation.bbox, scale, offset.x, offset.y);
-        updateLabelBadgePosition(objects.badge, annotation.bbox, scale, offset.x, offset.y);
+        const coords = 'bbox' in annotation ? annotation.bbox : annotation.obb;
+        updateBoxPosition(objects.rect, coords, scale, offset.x, offset.y);
+        updateLabelBadgePosition(objects.badge, coords, scale, offset.x, offset.y);
       }
     });
 
@@ -470,8 +506,8 @@
 
     labelData.annotations.forEach((ann) => {
       // bbox가 있는 경우만 BB로 처리
-      if ('bbox' in ann) {
-        addBoxToCanvas(ann as BBAnnotation);
+      if ('bbox' in ann || 'obb' in ann) {
+        addBoxToCanvas(ann as BBAnnotation | OBBAnnotation);
       }
     });
   }
@@ -803,9 +839,9 @@
 
     // 추가/갱신 동기화
     labelData.annotations.forEach((ann) => {
-      if (!('bbox' in ann)) return;
+      if (!('bbox' in ann) && !('obb' in ann)) return;
 
-      const annotation = ann as BBAnnotation;
+      const annotation = ann as BBAnnotation | OBBAnnotation;
       const existingObjects = labelBoxes.get(annotation.id);
 
       if (!existingObjects) {
@@ -813,8 +849,9 @@
         return;
       }
 
-      updateBoxPosition(existingObjects.rect, annotation.bbox, scale, offset.x, offset.y);
-      updateLabelBadgePosition(existingObjects.badge, annotation.bbox, scale, offset.x, offset.y);
+      const coords = 'bbox' in annotation ? annotation.bbox : annotation.obb;
+      updateBoxPosition(existingObjects.rect, coords, scale, offset.x, offset.y);
+      updateLabelBadgePosition(existingObjects.badge, coords, scale, offset.x, offset.y);
       setBoxSelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id);
       existingObjects.rect.setCoords();
     });

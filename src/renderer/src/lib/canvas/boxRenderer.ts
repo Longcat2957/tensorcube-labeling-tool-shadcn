@@ -4,7 +4,7 @@
  */
 
 import { Rect, Text, Shadow } from "fabric";
-import type { BBAnnotation } from "../stores/workspace.svelte.js";
+import type { BBAnnotation, OBBAnnotation } from "../stores/workspace.svelte.js";
 
 // 클래스별 색상 반환
 export function getClassColor(classId: number): string {
@@ -43,6 +43,7 @@ export interface LabelBoxData {
   classId: number;
   color: string;
   type: "label";
+  shape: "bb" | "obb";
 }
 
 export type LabelBoxRect = Rect & {
@@ -67,6 +68,43 @@ const LABEL_BADGE_FONT_SIZE = 12;
 
 function buildLabelText(className: string, classId: number): string {
   return className.trim() || `Class ${classId}`;
+}
+
+function getObbBadgeAnchor(
+  obb: [number, number, number, number, number],
+  scale: number,
+  imageOffsetX: number,
+  imageOffsetY: number
+): { left: number; top: number } {
+  const [cx, cy, width, height, angle] = obb;
+  const centerX = cx * scale + imageOffsetX;
+  const centerY = cy * scale + imageOffsetY;
+  const halfWidth = (width * scale) / 2;
+  const halfHeight = (height * scale) / 2;
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  const rotatePoint = (x: number, y: number) => ({
+    x: centerX + x * cos - y * sin,
+    y: centerY + x * sin + y * cos,
+  });
+
+  const corners = [
+    rotatePoint(-halfWidth, -halfHeight),
+    rotatePoint(halfWidth, -halfHeight),
+    rotatePoint(halfWidth, halfHeight),
+    rotatePoint(-halfWidth, halfHeight),
+  ];
+
+  const topY = Math.min(...corners.map((corner) => corner.y));
+  const topCandidates = corners.filter((corner) => Math.abs(corner.y - topY) < 0.001);
+  const anchor = topCandidates.sort((a, b) => a.x - b.x)[0] ?? corners[0];
+
+  return {
+    left: anchor.x,
+    top: anchor.y,
+  };
 }
 
 /**
@@ -128,6 +166,35 @@ export function normalizeBbox(
   ];
 }
 
+export function bboxToObb(
+  bbox: [number, number, number, number],
+  angle = 0
+): [number, number, number, number, number] {
+  const [xmin, ymin, xmax, ymax] = bbox;
+  return [
+    Math.round((xmin + xmax) / 2),
+    Math.round((ymin + ymax) / 2),
+    Math.round(xmax - xmin),
+    Math.round(ymax - ymin),
+    angle,
+  ];
+}
+
+export function obbToBbox(
+  obb: [number, number, number, number, number]
+): [number, number, number, number] {
+  const [cx, cy, width, height] = obb;
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+
+  return [
+    Math.round(cx - halfWidth),
+    Math.round(cy - halfHeight),
+    Math.round(cx + halfWidth),
+    Math.round(cy + halfHeight),
+  ];
+}
+
 /**
  * Fabric.js Rect 객체 생성 (저장된 라벨용)
  */
@@ -172,25 +239,74 @@ export function createLabelBox(
     classId: annotation.class_id,
     color,
     type: "label",
+    shape: "bb",
+  };
+
+  return rect as LabelBoxRect;
+}
+
+export function createOBBLabelBox(
+  annotation: OBBAnnotation,
+  scale: number,
+  imageOffsetX: number,
+  imageOffsetY: number,
+  options: BoxStyleOptions = {}
+): LabelBoxRect {
+  const style = { ...DEFAULT_BOX_STYLE, ...options };
+  const color = getClassColor(annotation.class_id);
+  const [cx, cy, width, height, angle] = annotation.obb;
+
+  const rect = new Rect({
+    left: cx * scale + imageOffsetX,
+    top: cy * scale + imageOffsetY,
+    width: width * scale,
+    height: height * scale,
+    originX: 'center',
+    originY: 'center',
+    angle,
+    stroke: color,
+    strokeWidth: style.strokeWidth!,
+    fill: hexToRgba(color, 0.12),
+    opacity: 1,
+    selectable: true,
+    evented: true,
+    hasControls: true,
+    hasBorders: false,
+    cornerColor: '#ffffff',
+    cornerStrokeColor: color,
+    cornerSize: 9,
+    cornerStyle: 'circle',
+    transparentCorners: false,
+    lockRotation: false,
+  });
+
+  (rect as LabelBoxRect).data = {
+    id: annotation.id,
+    classId: annotation.class_id,
+    color,
+    type: 'label',
+    shape: 'obb',
   };
 
   return rect as LabelBoxRect;
 }
 
 export function createLabelBadge(
-  annotation: BBAnnotation,
+  annotation: BBAnnotation | OBBAnnotation,
   className: string,
   scale: number,
   imageOffsetX: number,
   imageOffsetY: number
 ): LabelBadgeObjects {
   const color = getClassColor(annotation.class_id);
-  const screenCoords = imageToScreen(annotation.bbox, scale, imageOffsetX, imageOffsetY);
+  const screenAnchor = 'bbox' in annotation
+    ? imageToScreen(annotation.bbox, scale, imageOffsetX, imageOffsetY)
+    : getObbBadgeAnchor(annotation.obb, scale, imageOffsetX, imageOffsetY);
   const labelText = buildLabelText(className, annotation.class_id);
 
   const text = new Text(labelText, {
     left: LABEL_BADGE_HORIZONTAL_PADDING,
-    top: screenCoords.top - LABEL_BADGE_HEIGHT + 5,
+    top: screenAnchor.top - LABEL_BADGE_HEIGHT + 5,
     originX: 'left',
     originY: 'top',
     fontSize: LABEL_BADGE_FONT_SIZE,
@@ -204,8 +320,8 @@ export function createLabelBadge(
   const badgeWidth = Math.max(48, textWidth + LABEL_BADGE_HORIZONTAL_PADDING * 2);
 
   const background = new Rect({
-    left: screenCoords.left,
-    top: screenCoords.top - LABEL_BADGE_HEIGHT,
+    left: screenAnchor.left,
+    top: screenAnchor.top - LABEL_BADGE_HEIGHT,
     width: badgeWidth,
     height: LABEL_BADGE_HEIGHT,
     originX: 'left',
@@ -218,7 +334,7 @@ export function createLabelBadge(
   });
 
   text.set({
-    left: screenCoords.left + LABEL_BADGE_HORIZONTAL_PADDING,
+    left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING,
   });
 
   return { background, text };
@@ -285,40 +401,61 @@ export function createDrawingBox(
  */
 export function updateBoxPosition(
   rect: LabelBoxRect,
-  bbox: [number, number, number, number],
+  coords: [number, number, number, number] | [number, number, number, number, number],
   scale: number,
   imageOffsetX: number,
   imageOffsetY: number
 ): void {
-  const screenCoords = imageToScreen(bbox, scale, imageOffsetX, imageOffsetY);
-  rect.set({
-    left: screenCoords.left,
-    top: screenCoords.top,
-    width: screenCoords.width,
-    height: screenCoords.height,
-  });
+  if (rect.data.shape === 'obb' && coords.length === 5) {
+    const [cx, cy, width, height, angle] = coords;
+    rect.set({
+      left: cx * scale + imageOffsetX,
+      top: cy * scale + imageOffsetY,
+      width: width * scale,
+      height: height * scale,
+      scaleX: 1,
+      scaleY: 1,
+      angle,
+      originX: 'center',
+      originY: 'center',
+    });
+  } else {
+    const bbox = coords as [number, number, number, number];
+    const screenCoords = imageToScreen(bbox, scale, imageOffsetX, imageOffsetY);
+    rect.set({
+      left: screenCoords.left,
+      top: screenCoords.top,
+      width: screenCoords.width,
+      height: screenCoords.height,
+      originX: 'left',
+      originY: 'top',
+      angle: 0,
+    });
+  }
   rect.setCoords();
 }
 
 export function updateLabelBadgePosition(
   badge: LabelBadgeObjects,
-  bbox: [number, number, number, number],
+  coords: [number, number, number, number] | [number, number, number, number, number],
   scale: number,
   imageOffsetX: number,
   imageOffsetY: number
 ): void {
-  const screenCoords = imageToScreen(bbox, scale, imageOffsetX, imageOffsetY);
+  const screenAnchor = coords.length === 5
+    ? getObbBadgeAnchor(coords, scale, imageOffsetX, imageOffsetY)
+    : imageToScreen(coords, scale, imageOffsetX, imageOffsetY);
   const textWidth = badge.text.width ?? 0;
 
   badge.background.set({
-    left: screenCoords.left,
-    top: screenCoords.top - LABEL_BADGE_HEIGHT,
+    left: screenAnchor.left,
+    top: screenAnchor.top - LABEL_BADGE_HEIGHT,
     width: Math.max(48, textWidth + LABEL_BADGE_HORIZONTAL_PADDING * 2),
   });
 
   badge.text.set({
-    left: screenCoords.left + LABEL_BADGE_HORIZONTAL_PADDING,
-    top: screenCoords.top - LABEL_BADGE_HEIGHT + 5,
+    left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING,
+    top: screenAnchor.top - LABEL_BADGE_HEIGHT + 5,
   });
 
   badge.background.setCoords();
@@ -362,6 +499,45 @@ export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void
       cornerSize: 9,
     });
   }
+
+  rect.setCoords();
+}
+
+export function screenToObb(
+  rect: LabelBoxRect,
+  scale: number,
+  imageOffsetX: number,
+  imageOffsetY: number
+): [number, number, number, number, number] {
+  const width = ((rect.width ?? 0) * (rect.scaleX ?? 1)) / scale;
+  const height = ((rect.height ?? 0) * (rect.scaleY ?? 1)) / scale;
+  const cx = Math.round(((rect.left ?? 0) - imageOffsetX) / scale);
+  const cy = Math.round(((rect.top ?? 0) - imageOffsetY) / scale);
+  const angle = Math.round(rect.angle ?? 0);
+
+  return [cx, cy, Math.round(width), Math.round(height), angle];
+}
+
+export function normalizeObbRectAfterModify(
+  rect: LabelBoxRect,
+  obb: [number, number, number, number, number],
+  scale: number,
+  imageOffsetX: number,
+  imageOffsetY: number
+): void {
+  const [cx, cy, width, height, angle] = obb;
+
+  rect.set({
+    left: cx * scale + imageOffsetX,
+    top: cy * scale + imageOffsetY,
+    width: width * scale,
+    height: height * scale,
+    scaleX: 1,
+    scaleY: 1,
+    angle,
+    originX: 'center',
+    originY: 'center',
+  });
 
   rect.setCoords();
 }

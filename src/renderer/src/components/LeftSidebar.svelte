@@ -30,6 +30,10 @@
     console.log("박스 생성 도구 활성화");
   }
 
+  const boxToolLabel = $derived(
+    workspaceManager.isOBBMode ? "회전 바운딩 박스 생성 도구 (B)" : "바운딩 박스 생성 도구 (B)"
+  );
+
   function handleUndo() {
     workspaceManager.undo();
     console.log("실행 취소");
@@ -85,7 +89,7 @@
     <Button 
       variant={toolManager.currentTool === "box" ? "secondary" : "ghost"} 
       size="icon" 
-      aria-label="박스 생성 도구 (B)"
+      aria-label={boxToolLabel}
       onclick={handleBoxTool}
     >
       <Square />
