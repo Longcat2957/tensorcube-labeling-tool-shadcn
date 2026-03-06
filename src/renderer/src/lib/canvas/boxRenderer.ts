@@ -1,37 +1,24 @@
 /**
  * 박스 렌더링 유틸리티
- * Fabric.js 기반 Bounding Box 생성 및 좌표 변환
+ * Fabric.js 객체(라벨 박스, 뱃지, 드로잉 박스) 생성 및 스타일 조작
  */
-
 import { Rect, Text, Shadow } from "fabric";
 import type { BBAnnotation, OBBAnnotation } from "../stores/workspace.svelte.js";
+import { getClassColor, hexToRgba } from "./colors.js";
+import { imageToScreen, getObbBadgeAnchor } from "./coordUtils.js";
 
-// 클래스별 색상 반환
-export function getClassColor(classId: number): string {
-  const colors = [
-    "#3b82f6",
-    "#ef4444",
-    "#22c55e",
-    "#f59e0b",
-    "#8b5cf6",
-    "#ec4899",
-    "#06b6d4",
-    "#84cc16",
-    "#f97316",
-    "#6366f1",
-  ];
-  return colors[classId % colors.length];
-}
+// 공통 유틸 re-export (외부에서 boxRenderer만 import하던 코드를 위해)
+export { getClassColor } from "./colors.js";
+export {
+  imageToScreen,
+  screenToImage,
+  normalizeBbox,
+  bboxToObb,
+  obbToBbox,
+} from "./coordUtils.js";
 
-/** hex 색상 + 알파 → rgba 문자열 */
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
+// ─── 타입 정의 ────────────────────────────────────────────────
 
-// 박스 스타일 옵션
 export interface BoxStyleOptions {
   strokeWidth?: number;
   opacity?: number;
@@ -46,157 +33,24 @@ export interface LabelBoxData {
   shape: "bb" | "obb";
 }
 
-export type LabelBoxRect = Rect & {
-  data: LabelBoxData;
-};
+export type LabelBoxRect = Rect & { data: LabelBoxData };
 
 export interface LabelBadgeObjects {
   background: Rect;
   text: Text;
 }
 
-// 기본 박스 스타일 (normal)
-const DEFAULT_BOX_STYLE: BoxStyleOptions = {
-  strokeWidth: 2,
-  opacity: 1,
-  fillOpacity: 0.12,
-};
+// ─── 내부 상수 ────────────────────────────────────────────────
 
+const DEFAULT_STROKE_WIDTH = 2;
 const LABEL_BADGE_HEIGHT = 22;
 const LABEL_BADGE_HORIZONTAL_PADDING = 8;
 const LABEL_BADGE_FONT_SIZE = 12;
 
-function buildLabelText(className: string, classId: number): string {
-  return className.trim() || `Class ${classId}`;
-}
-
-function getObbBadgeAnchor(
-  obb: [number, number, number, number, number],
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): { left: number; top: number } {
-  const [cx, cy, width, height, angle] = obb;
-  const centerX = cx * scale + imageOffsetX;
-  const centerY = cy * scale + imageOffsetY;
-  const halfWidth = (width * scale) / 2;
-  const halfHeight = (height * scale) / 2;
-  const rad = (angle * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-
-  const rotatePoint = (x: number, y: number) => ({
-    x: centerX + x * cos - y * sin,
-    y: centerY + x * sin + y * cos,
-  });
-
-  const corners = [
-    rotatePoint(-halfWidth, -halfHeight),
-    rotatePoint(halfWidth, -halfHeight),
-    rotatePoint(halfWidth, halfHeight),
-    rotatePoint(-halfWidth, halfHeight),
-  ];
-
-  const topY = Math.min(...corners.map((corner) => corner.y));
-  const topCandidates = corners.filter((corner) => Math.abs(corner.y - topY) < 0.001);
-  const anchor = topCandidates.sort((a, b) => a.x - b.x)[0] ?? corners[0];
-
-  return {
-    left: anchor.x,
-    top: anchor.y,
-  };
-}
+// ─── 라벨 박스 생성 ───────────────────────────────────────────
 
 /**
- * 이미지 좌표를 스크린 좌표로 변환
- * @param imageCoords - 이미지 픽셀 좌표 [xmin, ymin, xmax, ymax]
- * @param scale - 현재 줌 스케일
- * @param imageOffsetX - 이미지의 화면상 좌상단 X 좌표
- * @param imageOffsetY - 이미지의 화면상 좌상단 Y 좌표
- */
-export function imageToScreen(
-  imageCoords: [number, number, number, number],
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): { left: number; top: number; width: number; height: number } {
-  const [xmin, ymin, xmax, ymax] = imageCoords;
-  return {
-    left: xmin * scale + imageOffsetX,
-    top: ymin * scale + imageOffsetY,
-    width: (xmax - xmin) * scale,
-    height: (ymax - ymin) * scale,
-  };
-}
-
-/**
- * 스크린 좌표를 이미지 좌표로 변환
- * @param screenCoords - 스크린 좌표 { left, top, width, height }
- * @param scale - 현재 줌 스케일
- * @param imageOffsetX - 이미지의 화면상 좌상단 X 좌표
- * @param imageOffsetY - 이미지의 화면상 좌상단 Y 좌표
- */
-export function screenToImage(
-  screenCoords: { left: number; top: number; width: number; height: number },
-  scale: number,
-  imageOffsetX: number,
-  imageOffsetY: number
-): [number, number, number, number] {
-  const xmin = Math.round((screenCoords.left - imageOffsetX) / scale);
-  const ymin = Math.round((screenCoords.top - imageOffsetY) / scale);
-  const xmax = Math.round((screenCoords.left + screenCoords.width - imageOffsetX) / scale);
-  const ymax = Math.round((screenCoords.top + screenCoords.height - imageOffsetY) / scale);
-  return [xmin, ymin, xmax, ymax];
-}
-
-/**
- * 두 점에서 bbox 좌표 계산 (정규화: xmin < xmax, ymin < ymax)
- */
-export function normalizeBbox(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-): [number, number, number, number] {
-  return [
-    Math.min(x1, x2),
-    Math.min(y1, y2),
-    Math.max(x1, x2),
-    Math.max(y1, y2),
-  ];
-}
-
-export function bboxToObb(
-  bbox: [number, number, number, number],
-  angle = 0
-): [number, number, number, number, number] {
-  const [xmin, ymin, xmax, ymax] = bbox;
-  return [
-    Math.round((xmin + xmax) / 2),
-    Math.round((ymin + ymax) / 2),
-    Math.round(xmax - xmin),
-    Math.round(ymax - ymin),
-    angle,
-  ];
-}
-
-export function obbToBbox(
-  obb: [number, number, number, number, number]
-): [number, number, number, number] {
-  const [cx, cy, width, height] = obb;
-  const halfWidth = width / 2;
-  const halfHeight = height / 2;
-
-  return [
-    Math.round(cx - halfWidth),
-    Math.round(cy - halfHeight),
-    Math.round(cx + halfWidth),
-    Math.round(cy + halfHeight),
-  ];
-}
-
-/**
- * Fabric.js Rect 객체 생성 (저장된 라벨용)
+ * BB(Bounding Box) 라벨 박스 생성
  */
 export function createLabelBox(
   annotation: BBAnnotation,
@@ -205,7 +59,7 @@ export function createLabelBox(
   imageOffsetY: number,
   options: BoxStyleOptions = {}
 ): LabelBoxRect {
-  const style = { ...DEFAULT_BOX_STYLE, ...options };
+  const strokeWidth = options.strokeWidth ?? DEFAULT_STROKE_WIDTH;
   const color = getClassColor(annotation.class_id);
   const screenCoords = imageToScreen(annotation.bbox, scale, imageOffsetX, imageOffsetY);
 
@@ -216,16 +70,14 @@ export function createLabelBox(
     height: screenCoords.height,
     originX: 'left',
     originY: 'top',
-    // Normal state: class color border + translucent fill (opacity must stay 1)
     stroke: color,
-    strokeWidth: style.strokeWidth!,
+    strokeWidth,
     fill: hexToRgba(color, 0.12),
     opacity: 1,
     selectable: true,
     evented: true,
     hasControls: true,
     hasBorders: false,
-    // Corner handle: white fill + class color border for visual clarity
     cornerColor: '#ffffff',
     cornerStrokeColor: color,
     cornerSize: 9,
@@ -245,6 +97,9 @@ export function createLabelBox(
   return rect as LabelBoxRect;
 }
 
+/**
+ * OBB(Oriented Bounding Box) 라벨 박스 생성
+ */
 export function createOBBLabelBox(
   annotation: OBBAnnotation,
   scale: number,
@@ -252,7 +107,7 @@ export function createOBBLabelBox(
   imageOffsetY: number,
   options: BoxStyleOptions = {}
 ): LabelBoxRect {
-  const style = { ...DEFAULT_BOX_STYLE, ...options };
+  const strokeWidth = options.strokeWidth ?? DEFAULT_STROKE_WIDTH;
   const color = getClassColor(annotation.class_id);
   const [cx, cy, width, height, angle] = annotation.obb;
 
@@ -265,7 +120,7 @@ export function createOBBLabelBox(
     originY: 'center',
     angle,
     stroke: color,
-    strokeWidth: style.strokeWidth!,
+    strokeWidth,
     fill: hexToRgba(color, 0.12),
     opacity: 1,
     selectable: true,
@@ -291,6 +146,9 @@ export function createOBBLabelBox(
   return rect as LabelBoxRect;
 }
 
+/**
+ * 라벨 뱃지(배경 + 텍스트) 생성
+ */
 export function createLabelBadge(
   annotation: BBAnnotation | OBBAnnotation,
   className: string,
@@ -299,10 +157,11 @@ export function createLabelBadge(
   imageOffsetY: number
 ): LabelBadgeObjects {
   const color = getClassColor(annotation.class_id);
-  const screenAnchor = 'bbox' in annotation
-    ? imageToScreen(annotation.bbox, scale, imageOffsetX, imageOffsetY)
-    : getObbBadgeAnchor(annotation.obb, scale, imageOffsetX, imageOffsetY);
-  const labelText = buildLabelText(className, annotation.class_id);
+  const screenAnchor =
+    'bbox' in annotation
+      ? imageToScreen(annotation.bbox, scale, imageOffsetX, imageOffsetY)
+      : getObbBadgeAnchor(annotation.obb, scale, imageOffsetX, imageOffsetY);
+  const labelText = className.trim() || `Class ${annotation.class_id}`;
 
   const text = new Text(labelText, {
     left: LABEL_BADGE_HORIZONTAL_PADDING,
@@ -333,9 +192,7 @@ export function createLabelBadge(
     evented: false,
   });
 
-  text.set({
-    left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING,
-  });
+  text.set({ left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING });
 
   return { background, text };
 }
@@ -352,52 +209,32 @@ export function createDrawingBox(
   classId: number
 ): Rect {
   const color = getClassColor(classId);
-
-  // 이미지 좌표를 스크린 좌표로 변환
-  const screenStart = {
-    x: startPoint.x * scale + imageOffsetX,
-    y: startPoint.y * scale + imageOffsetY,
-  };
-  const screenEnd = {
-    x: endPoint.x * scale + imageOffsetX,
-    y: endPoint.y * scale + imageOffsetY,
-  };
-
-  const left = Math.min(screenStart.x, screenEnd.x);
-  const top = Math.min(screenStart.y, screenEnd.y);
-  const width = Math.abs(screenEnd.x - screenStart.x);
-  const height = Math.abs(screenEnd.y - screenStart.y);
+  const screenStart = { x: startPoint.x * scale + imageOffsetX, y: startPoint.y * scale + imageOffsetY };
+  const screenEnd = { x: endPoint.x * scale + imageOffsetX, y: endPoint.y * scale + imageOffsetY };
 
   return new Rect({
-    left,
-    top,
-    width,
-    height,
+    left: Math.min(screenStart.x, screenEnd.x),
+    top: Math.min(screenStart.y, screenEnd.y),
+    width: Math.abs(screenEnd.x - screenStart.x),
+    height: Math.abs(screenEnd.y - screenStart.y),
     originX: 'left',
     originY: 'top',
-    // 드로잉 중: 흰색 점선 테두리 + 클래스 색상 반투명 fill
     stroke: '#ffffff',
     strokeWidth: 2,
     strokeDashArray: [6, 4],
     fill: hexToRgba(color, 0.15),
     opacity: 1,
-    shadow: new Shadow({
-      color: hexToRgba(color, 0.6),
-      blur: 8,
-      offsetX: 0,
-      offsetY: 0,
-    }),
+    shadow: new Shadow({ color: hexToRgba(color, 0.6), blur: 8, offsetX: 0, offsetY: 0 }),
     selectable: false,
     evented: false,
-    data: {
-      type: "drawing",
-      classId,
-    },
+    data: { type: "drawing", classId },
   });
 }
 
+// ─── 박스 위치/스타일 업데이트 ────────────────────────────────
+
 /**
- * 박스 위치 업데이트 (줌/패닝 후)
+ * 줌/패닝 후 박스 위치 갱신
  */
 export function updateBoxPosition(
   rect: LabelBoxRect,
@@ -422,19 +259,14 @@ export function updateBoxPosition(
   } else {
     const bbox = coords as [number, number, number, number];
     const screenCoords = imageToScreen(bbox, scale, imageOffsetX, imageOffsetY);
-    rect.set({
-      left: screenCoords.left,
-      top: screenCoords.top,
-      width: screenCoords.width,
-      height: screenCoords.height,
-      originX: 'left',
-      originY: 'top',
-      angle: 0,
-    });
+    rect.set({ ...screenCoords, scaleX: 1, scaleY: 1, originX: 'left', originY: 'top', angle: 0 });
   }
   rect.setCoords();
 }
 
+/**
+ * 뱃지 위치 갱신
+ */
 export function updateLabelBadgePosition(
   badge: LabelBadgeObjects,
   coords: [number, number, number, number] | [number, number, number, number, number],
@@ -442,9 +274,10 @@ export function updateLabelBadgePosition(
   imageOffsetX: number,
   imageOffsetY: number
 ): void {
-  const screenAnchor = coords.length === 5
-    ? getObbBadgeAnchor(coords, scale, imageOffsetX, imageOffsetY)
-    : imageToScreen(coords, scale, imageOffsetX, imageOffsetY);
+  const screenAnchor =
+    coords.length === 5
+      ? getObbBadgeAnchor(coords, scale, imageOffsetX, imageOffsetY)
+      : imageToScreen(coords, scale, imageOffsetX, imageOffsetY);
   const textWidth = badge.text.width ?? 0;
 
   badge.background.set({
@@ -452,21 +285,16 @@ export function updateLabelBadgePosition(
     top: screenAnchor.top - LABEL_BADGE_HEIGHT,
     width: Math.max(48, textWidth + LABEL_BADGE_HORIZONTAL_PADDING * 2),
   });
-
   badge.text.set({
     left: screenAnchor.left + LABEL_BADGE_HORIZONTAL_PADDING,
     top: screenAnchor.top - LABEL_BADGE_HEIGHT + 5,
   });
-
   badge.background.setCoords();
   badge.text.setCoords();
 }
 
 /**
- * 박스 선택 상태 스타일 적용
- *
- * Normal:   class color stroke / 12% fill / 작은 손잡이
- * Selected: 흰색 stroke + class color glow / 25% fill / 흰색 손잡이
+ * 박스 선택/비선택 스타일 전환
  */
 export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void {
   const color = rect.data.color;
@@ -477,12 +305,7 @@ export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void
       strokeWidth: 2.5,
       fill: hexToRgba(color, 0.25),
       strokeDashArray: undefined,
-      shadow: new Shadow({
-        color: hexToRgba(color, 0.8),
-        blur: 12,
-        offsetX: 0,
-        offsetY: 0,
-      }),
+      shadow: new Shadow({ color: hexToRgba(color, 0.8), blur: 12, offsetX: 0, offsetY: 0 }),
       cornerColor: '#ffffff',
       cornerStrokeColor: color,
       cornerSize: 11,
@@ -499,10 +322,14 @@ export function setBoxSelectedStyle(rect: LabelBoxRect, selected: boolean): void
       cornerSize: 9,
     });
   }
-
   rect.setCoords();
 }
 
+// ─── OBB 전용 유틸 ────────────────────────────────────────────
+
+/**
+ * Fabric Rect → OBB 픽셀 좌표로 역변환 (수정 완료 후 호출)
+ */
 export function screenToObb(
   rect: LabelBoxRect,
   scale: number,
@@ -514,10 +341,12 @@ export function screenToObb(
   const cx = Math.round(((rect.left ?? 0) - imageOffsetX) / scale);
   const cy = Math.round(((rect.top ?? 0) - imageOffsetY) / scale);
   const angle = Math.round(rect.angle ?? 0);
-
   return [cx, cy, Math.round(width), Math.round(height), angle];
 }
 
+/**
+ * OBB 수정 후 Rect를 정규화된 좌표로 재설정
+ */
 export function normalizeObbRectAfterModify(
   rect: LabelBoxRect,
   obb: [number, number, number, number, number],
@@ -526,7 +355,6 @@ export function normalizeObbRectAfterModify(
   imageOffsetY: number
 ): void {
   const [cx, cy, width, height, angle] = obb;
-
   rect.set({
     left: cx * scale + imageOffsetX,
     top: cy * scale + imageOffsetY,
@@ -538,6 +366,5 @@ export function normalizeObbRectAfterModify(
     originX: 'center',
     originY: 'center',
   });
-
   rect.setCoords();
 }

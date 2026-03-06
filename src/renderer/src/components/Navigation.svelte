@@ -59,7 +59,6 @@
       <TabsList>
         <TabsTrigger value="edit">Edit</TabsTrigger>
         <TabsTrigger value="check">Check</TabsTrigger>
-        <TabsTrigger value="preview">Preview</TabsTrigger>
       </TabsList>
     </Tabs>
     <ExportDialog>
