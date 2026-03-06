@@ -4,20 +4,20 @@
   import { ArrowLeft, ArrowRight, MousePointer2, Square, Undo, Redo, Trash2 } from "@lucide/svelte";
   import { KEYBOARD_MANAGER_KEY, type KeyboardAction, type KeyboardManager } from "$lib/stores/keyboardManager.svelte.js";
   import { TOOL_MANAGER_KEY, type ToolManager } from "$lib/stores/toolManager.svelte.js";
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
 
   // Context 가져오기
   const keyboardManager = getContext<KeyboardManager>(KEYBOARD_MANAGER_KEY);
   const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY);
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
   // 단축키 액션 핸들러
   function handlePrevImage() {
-    console.log("이전 이미지 이동");
-    // TODO: 이미지 이동 로직 구현
+    workspaceManager.prevImage();
   }
 
   function handleNextImage() {
-    console.log("다음 이미지 이동");
-    // TODO: 이미지 이동 로직 구현
+    workspaceManager.nextImage();
   }
 
   function handleSelectTool() {

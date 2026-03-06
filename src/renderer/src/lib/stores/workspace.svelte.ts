@@ -111,6 +111,10 @@ async function loadCurrentImageLabel(): Promise<void> {
 // 이미지 이동
 async function goToImage(index: number): Promise<void> {
   if (index >= 0 && index < imageList.length) {
+    // 이미지 전환 전 현재 라벨 저장
+    if (currentLabelData && workspacePath && currentImage) {
+      await saveLabel(currentLabelData, false);
+    }
     currentImageIndex = index;
     await loadCurrentImageLabel();
   }
@@ -132,7 +136,9 @@ async function prevImage(): Promise<void> {
 async function saveLabel(data: LabelData, completed: boolean = false): Promise<boolean> {
   if (!workspacePath || !currentImage) return false;
   
-  const success = await window.api.label.save(workspacePath, currentImage.id, data as unknown as Record<string, unknown>, completed);
+  // $state 반응형 프록시를 순수 객체로 변환 후 IPC 전송 (structured clone 대응)
+  const plainData = JSON.parse(JSON.stringify(data));
+  const success = await window.api.label.save(workspacePath, currentImage.id, plainData, completed);
   
   if (success) {
     currentLabelData = data;

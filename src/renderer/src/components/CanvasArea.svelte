@@ -43,6 +43,9 @@
   // 드로잉 박스 상태
   let drawingBox: Rect | null = null;
 
+  // 현재 로딩 요청 중인 이미지 ID (중복/선점 취소 패턴)
+  let loadingImageId: string | null = null;
+
   interface CanvasLabelObjects {
     rect: LabelBoxRect;
     badge: LabelBadgeObjects;
@@ -521,19 +524,19 @@
 
   // 이미지 로드
   async function loadImage(): Promise<void> {
-    if (!fabricCanvas) {
-      console.error("Canvas not initialized");
-      return;
-    }
+    if (!fabricCanvas) return;
+    if (!workspaceManager.workspacePath || !workspaceManager.currentImage) return;
 
-    if (!workspaceManager.workspacePath || !workspaceManager.currentImage) {
-      console.error("Workspace or current image not available");
-      return;
-    }
+    // 이 로드 요청의 타겟 이미지 ID를 시작 시점에 캡처
+    const targetId = workspaceManager.currentImage.id;
+
+    // 이미 같은 이미지가 표시/로딩 중이면 스킵
+    if (targetId === loadingImageId && currentImageObject) return;
+
+    // 이 요청을 최신 로드로 등록 (이전 진행 중인 로드를 선점)
+    loadingImageId = targetId;
 
     try {
-      console.log("Loading image for:", workspaceManager.currentImage.id);
-
       // 기존 이미지 제거
       if (currentImageObject) {
         fabricCanvas.remove(currentImageObject);
@@ -542,45 +545,38 @@
 
       // 기존 라벨 박스 제거
       labelBoxes.forEach((objects) => {
-        fabricCanvas.remove(objects.rect);
-        fabricCanvas.remove(objects.badge.background);
-        fabricCanvas.remove(objects.badge.text);
+        fabricCanvas!.remove(objects.rect);
+        fabricCanvas!.remove(objects.badge.background);
+        fabricCanvas!.remove(objects.badge.text);
       });
       labelBoxes.clear();
       drawingBox = null;
 
-      // 이미지 경로 가져오기
+      // 이미지 경로 가져오기 (비동기)
       const imagePath = await window.api.label.getImagePath(
-        workspaceManager.workspacePath,
-        workspaceManager.currentImage.id
+        workspaceManager.workspacePath!,
+        targetId
       );
 
-      console.log("Image path:", imagePath);
+      // await 이후: 더 최신 로드 요청이 선점했으면 폐기
+      if (loadingImageId !== targetId || !fabricCanvas) return;
 
       if (!imagePath) {
         console.error("이미지 경로를 찾을 수 없습니다.");
         return;
       }
 
-      // workspace:// 프로토콜 URL 생성
       const imageUrl = window.api.utils.getWorkspaceImageUrl(imagePath);
-      console.log("Image URL:", imageUrl);
 
-      // 이미지 로드 (fabric v7 방식)
-      const img = await FabricImage.fromURL(imageUrl, {
-        crossOrigin: "anonymous"
-      });
+      // 이미지 로드 (비동기)
+      const img = await FabricImage.fromURL(imageUrl, { crossOrigin: "anonymous" });
 
-      if (!fabricCanvas) return;
-
-      console.log("Image loaded - original size:", img.width, img.height);
+      // await 이후: 더 최신 로드 요청이 선점했으면 폐기
+      if (loadingImageId !== targetId || !fabricCanvas) return;
 
       currentImageObject = img;
-
-      // 이미지 크기 저장 (원본 크기)
       workspaceManager.setImageSize(img.width || 0, img.height || 0);
 
-      // 이미지 설정 - 중앙 기준으로 설정
       img.set({
         selectable: false,
         evented: false,
@@ -589,16 +585,11 @@
       });
 
       fabricCanvas.add(img);
-
-      // 이미지를 캔버스에 맞게 조절하고 중앙 정렬
       fitImageToCanvas();
-
-      // 라벨 렌더링
       renderLabels();
-
       fabricCanvas.requestRenderAll();
 
-      console.log("Image added to canvas successfully");
+      console.log("Image loaded:", targetId);
     } catch (error) {
       console.error("이미지 로드 실패:", error);
     }
