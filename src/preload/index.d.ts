@@ -17,6 +17,10 @@ export interface WorkspaceApi {
   open: (
     workspacePath: string
   ) => Promise<{ success: boolean; config?: WorkspaceConfig; error?: string }>
+  update: (
+    workspacePath: string,
+    options: UpdateWorkspaceOptions
+  ) => Promise<{ success: boolean; config?: WorkspaceConfig; error?: string }>
   getInfo: (workspacePath: string) => Promise<WorkspaceInfo | null>
   getImageList: (workspacePath: string) => Promise<ImageInfo[]>
 }
@@ -59,6 +63,12 @@ export interface WorkspaceInfo {
   imageCount: number
   lastModified: string
   path: string
+}
+
+export interface UpdateWorkspaceOptions {
+  workspace: string
+  labelingType: 1 | 2
+  classes: { id: number; name: string }[]
 }
 
 export interface ImageInfo {

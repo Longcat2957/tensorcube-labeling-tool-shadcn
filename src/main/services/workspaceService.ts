@@ -16,6 +16,7 @@ import type {
   WorkspaceConfig,
   WorkspaceInfo,
   CreateWorkspaceOptions,
+  UpdateWorkspaceOptions,
   ImageInfo,
   LabelData
 } from '../types/workspace.js';
@@ -130,6 +131,45 @@ export async function openWorkspace(
     }
 
     return { success: true, config };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+// 워크스페이스 설정 수정
+export async function updateWorkspace(
+  workspacePath: string,
+  options: UpdateWorkspaceOptions
+): Promise<{ success: boolean; config?: WorkspaceConfig; error?: string }> {
+  try {
+    const yamlPath = join(workspacePath, WORKSPACE_FILE);
+
+    if (!existsSync(yamlPath)) {
+      return { success: false, error: 'workspace.yaml 파일이 없습니다.' };
+    }
+
+    const currentConfig = await readYamlFile<WorkspaceConfig>(yamlPath);
+
+    if (!currentConfig) {
+      return { success: false, error: 'workspace.yaml 파싱에 실패했습니다.' };
+    }
+
+    const names: Record<number, string> = {};
+    for (const cls of options.classes) {
+      names[cls.id] = cls.name;
+    }
+
+    const updatedConfig: WorkspaceConfig = {
+      ...currentConfig,
+      workspace: options.workspace,
+      labeling_type: options.labelingType,
+      names,
+      last_modified_at: getCurrentDateString()
+    };
+
+    await writeYamlFile(yamlPath, updatedConfig as unknown as Record<string, unknown>);
+
+    return { success: true, config: updatedConfig };
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }

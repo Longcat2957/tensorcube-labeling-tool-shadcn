@@ -1,6 +1,7 @@
 import type { 
   WorkspaceConfig, 
   WorkspaceInfo, 
+  UpdateWorkspaceOptions,
   ImageInfo, 
   LabelData, 
   BBAnnotation 
@@ -17,6 +18,12 @@ let imageList = $state<ImageInfo[]>([]);
 let currentImageIndex = $state<number>(-1);
 let currentLabelData = $state<LabelData | null>(null);
 let selectedClassId = $state<number>(0);
+let autosaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+let autosaveVersion = $state(0);
+
+// 히스토리 상태 (현재 이미지 단위)
+let labelHistoryPast = $state<(LabelData | null)[]>([]);
+let labelHistoryFuture = $state<(LabelData | null)[]>([]);
 
 // 캔버스 상태
 let zoomLevel = $state<number>(1.0);
@@ -33,6 +40,8 @@ let selectedLabelId = $state<string | null>(null);
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null);
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null);
+const canUndo = $derived(labelHistoryPast.length > 0);
+const canRedo = $derived(labelHistoryFuture.length > 0);
 
 // 클래스 리스트 (UI용으로 변환)
 const classList = $derived(() => {
@@ -65,6 +74,54 @@ function getClassColor(classId: number): string {
   return colors[classId % colors.length];
 }
 
+function cloneLabelData(data: LabelData | null): LabelData | null {
+  if (!data) return null;
+  return JSON.parse(JSON.stringify(data)) as LabelData;
+}
+
+function resetHistory(): void {
+  labelHistoryPast = [];
+  labelHistoryFuture = [];
+}
+
+function applyLabelSnapshot(snapshot: LabelData | null): void {
+  currentLabelData = cloneLabelData(snapshot);
+
+  if (!currentLabelData?.annotations?.some((ann) => ann.id === selectedLabelId)) {
+    selectedLabelId = null;
+  }
+}
+
+function pushHistorySnapshot(): void {
+  labelHistoryPast = [...labelHistoryPast, cloneLabelData(currentLabelData)];
+  labelHistoryFuture = [];
+}
+
+function clearAutosaveTimer(): void {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+}
+
+function scheduleAutosave(): void {
+  if (!currentLabelData || !workspacePath || !currentImage) return;
+
+  clearAutosaveTimer();
+  const scheduledVersion = autosaveVersion + 1;
+  autosaveVersion = scheduledVersion;
+
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+
+    if (scheduledVersion !== autosaveVersion || !currentLabelData) {
+      return;
+    }
+
+    void saveLabel(currentLabelData, false);
+  }, 500);
+}
+
 // 워크스페이스 열기
 async function openWorkspace(path: string): Promise<boolean> {
   const result = await window.api.workspace.open(path);
@@ -92,20 +149,26 @@ async function openWorkspace(path: string): Promise<boolean> {
 
 // 워크스페이스 닫기
 function closeWorkspace(): void {
+  clearAutosaveTimer();
   workspacePath = null;
   workspaceConfig = null;
   workspaceInfo = null;
   imageList = [];
   currentImageIndex = -1;
   currentLabelData = null;
+  resetHistory();
 }
 
 // 현재 이미지 라벨 로드
 async function loadCurrentImageLabel(): Promise<void> {
   if (!workspacePath || !currentImage) return;
+
+  clearAutosaveTimer();
   
   const data = await window.api.label.read(workspacePath, currentImage.id);
   currentLabelData = data;
+  resetHistory();
+  selectedLabelId = null;
 }
 
 // 이미지 이동
@@ -113,6 +176,7 @@ async function goToImage(index: number): Promise<void> {
   if (index >= 0 && index < imageList.length) {
     // 이미지 전환 전 현재 라벨 저장
     if (currentLabelData && workspacePath && currentImage) {
+      clearAutosaveTimer();
       await saveLabel(currentLabelData, false);
     }
     currentImageIndex = index;
@@ -160,6 +224,47 @@ function updateWorkspaceConfig(config: WorkspaceConfig): void {
   workspaceConfig = config;
 }
 
+async function updateWorkspaceConfigFile(options: UpdateWorkspaceOptions): Promise<boolean> {
+  if (!workspacePath) return false;
+
+  const previousClassIds = workspaceConfig
+    ? Object.keys(workspaceConfig.names).map((id) => parseInt(id)).sort((a, b) => a - b)
+    : [];
+
+  const result = await window.api.workspace.update(workspacePath, options);
+
+  if (!result.success || !result.config) {
+    return false;
+  }
+
+  workspaceConfig = result.config;
+
+  const info = await window.api.workspace.getInfo(workspacePath);
+  workspaceInfo = info;
+
+  const validClassIds = Object.keys(result.config.names)
+    .map((id) => parseInt(id))
+    .sort((a, b) => a - b);
+
+  if (!validClassIds.includes(selectedClassId)) {
+    selectedClassId = validClassIds[0] ?? 0;
+  } else if (validClassIds.length > previousClassIds.length) {
+    const newlyAddedClassId = validClassIds.find((id) => !previousClassIds.includes(id));
+    if (newlyAddedClassId !== undefined) {
+      selectedClassId = newlyAddedClassId;
+    }
+  }
+
+  if (currentLabelData && currentLabelData.annotations.length > 0) {
+    const selectedLabelExists = currentLabelData.annotations.some((ann) => ann.id === selectedLabelId);
+    if (!selectedLabelExists) {
+      selectedLabelId = null;
+    }
+  }
+
+  return true;
+}
+
 // Context key
 export const WORKSPACE_MANAGER_KEY = Symbol('workspaceManager');
 
@@ -200,6 +305,8 @@ function setSelectedLabelId(id: string | null): void {
 }
 
 function addBBAnnotation(annotation: BBAnnotation): void {
+  pushHistorySnapshot();
+
   if (!currentLabelData) {
     // 라벨 데이터가 없으면 새로 생성
     currentLabelData = {
@@ -216,10 +323,15 @@ function addBBAnnotation(annotation: BBAnnotation): void {
       annotations: [...currentLabelData.annotations, annotation]
     };
   }
+
+  scheduleAutosave();
 }
 
 function deleteLabel(labelId: string): void {
   if (!currentLabelData) return;
+  if (!currentLabelData.annotations.some((ann) => ann.id === labelId)) return;
+
+  pushHistorySnapshot();
   
   currentLabelData = {
     ...currentLabelData,
@@ -229,6 +341,8 @@ function deleteLabel(labelId: string): void {
   if (selectedLabelId === labelId) {
     selectedLabelId = null;
   }
+
+  scheduleAutosave();
 }
 
 function getBBAnnotationById(labelId: string): BBAnnotation | undefined {
@@ -239,9 +353,48 @@ function getBBAnnotationById(labelId: string): BBAnnotation | undefined {
 function updateBBAnnotation(labelId: string, bbox: [number, number, number, number]): void {
   if (!currentLabelData) return;
   const ann = currentLabelData.annotations.find(a => a.id === labelId) as BBAnnotation | undefined;
-  if (ann) {
-    ann.bbox = bbox;
-  }
+  if (!ann) return;
+
+  const hasChanged = ann.bbox.some((value, index) => value !== bbox[index]);
+  if (!hasChanged) return;
+
+  pushHistorySnapshot();
+
+  currentLabelData = {
+    ...currentLabelData,
+    annotations: currentLabelData.annotations.map((annotation) => {
+      if (annotation.id !== labelId || !('bbox' in annotation)) {
+        return annotation;
+      }
+
+      return {
+        ...annotation,
+        bbox,
+      };
+    }),
+  };
+
+  scheduleAutosave();
+}
+
+function undo(): void {
+  if (labelHistoryPast.length === 0) return;
+
+  const previous = labelHistoryPast[labelHistoryPast.length - 1];
+  labelHistoryPast = labelHistoryPast.slice(0, -1);
+  labelHistoryFuture = [cloneLabelData(currentLabelData), ...labelHistoryFuture];
+  applyLabelSnapshot(previous);
+  scheduleAutosave();
+}
+
+function redo(): void {
+  if (labelHistoryFuture.length === 0) return;
+
+  const next = labelHistoryFuture[0];
+  labelHistoryFuture = labelHistoryFuture.slice(1);
+  labelHistoryPast = [...labelHistoryPast, cloneLabelData(currentLabelData)];
+  applyLabelSnapshot(next);
+  scheduleAutosave();
 }
 
 // Store export
@@ -260,6 +413,8 @@ export function createWorkspaceManager() {
     get currentLabels() { return currentLabels(); },
     get selectedClassId() { return selectedClassId; },
     get selectedLabelId() { return selectedLabelId; },
+    get canUndo() { return canUndo; },
+    get canRedo() { return canRedo; },
     
     // 캔버스 상태
     get zoomLevel() { return zoomLevel; },
@@ -278,6 +433,7 @@ export function createWorkspaceManager() {
     prevImage,
     saveLabel,
     updateWorkspaceConfig,
+    updateWorkspaceConfigFile,
     loadCurrentImageLabel,
     setSelectedClassId,
     
@@ -287,6 +443,8 @@ export function createWorkspaceManager() {
     updateBBAnnotation,
     deleteLabel,
     getBBAnnotationById,
+    undo,
+    redo,
     
     // 캔버스 메서드
     setZoomLevel,

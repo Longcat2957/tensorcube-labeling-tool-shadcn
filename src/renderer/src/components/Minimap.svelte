@@ -21,8 +21,8 @@
     const containerHeight = minimapContainer.clientHeight;
     if (containerWidth === 0 || containerHeight === 0) return;
 
-    const imgWidth = workspaceManager.imageWidth || 1;
-    const imgHeight = workspaceManager.imageHeight || 1;
+    const imgWidth = thumbnailImage?.naturalWidth || workspaceManager.imageWidth || 1;
+    const imgHeight = thumbnailImage?.naturalHeight || workspaceManager.imageHeight || 1;
     const imgAspect = imgWidth / imgHeight;
     const containerAspect = containerWidth / containerHeight;
 
@@ -84,6 +84,13 @@
     // 이 로드가 최신 요청인지 추적 (race condition 방어)
     loadingImageId = imageId;
 
+    if (ctx && minimapCanvas) {
+      minimapCanvas.width = 0;
+      minimapCanvas.height = 0;
+      minimapWidth = 0;
+      minimapHeight = 0;
+    }
+
     try {
       const imagePath = await window.api.label.getImagePath(
         workspaceManager.workspacePath,
@@ -128,11 +135,14 @@
 
   // 줌/캔버스 크기 변경 시 뷰포트 박스 다시 그리기
   $effect(() => {
+    void workspaceManager.imageWidth;
+    void workspaceManager.imageHeight;
     void workspaceManager.zoomLevel;
     void workspaceManager.canvasWidth;
     void workspaceManager.canvasHeight;
 
     if (thumbnailImage && ctx && minimapWidth > 0) {
+      calculateMinimapSize();
       drawMinimap();
     }
   });

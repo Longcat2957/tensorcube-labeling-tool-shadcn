@@ -18,6 +18,14 @@ const workspace = {
     classes: { id: number; name: string }[]
   }) => ipcRenderer.invoke('workspace:create', options),
   open: (workspacePath: string) => ipcRenderer.invoke('workspace:open', workspacePath),
+  update: (
+    workspacePath: string,
+    options: {
+      workspace: string
+      labelingType: 1 | 2
+      classes: { id: number; name: string }[]
+    }
+  ) => ipcRenderer.invoke('workspace:update', workspacePath, options),
   getInfo: (workspacePath: string) => ipcRenderer.invoke('workspace:getInfo', workspacePath),
   getImageList: (workspacePath: string) => ipcRenderer.invoke('workspace:getImageList', workspacePath)
 }

@@ -31,18 +31,21 @@
   }
 
   function handleUndo() {
+    workspaceManager.undo();
     console.log("실행 취소");
-    // TODO: Undo 로직 구현
   }
 
   function handleRedo() {
+    workspaceManager.redo();
     console.log("다시 실행");
-    // TODO: Redo 로직 구현
   }
 
   function handleDelete() {
+    const selectedId = workspaceManager.selectedLabelId;
+    if (!selectedId) return;
+
+    workspaceManager.deleteLabel(selectedId);
     console.log("선택된 라벨 삭제");
-    // TODO: 삭제 로직 구현
   }
 
   // 단축키 핸들러 등록
@@ -88,8 +91,8 @@
       <Square />
     </Button>
     <div class="h-px w-8 bg-border my-1" role="separator"></div>
-    <Button variant="ghost" size="icon" aria-label="실행 취소 (Ctrl+Z)" onclick={handleUndo}><Undo /></Button>
-    <Button variant="ghost" size="icon" aria-label="다시 실행 (Ctrl+Y)" onclick={handleRedo}><Redo /></Button>
-    <Button variant="ghost" size="icon" class="mt-auto text-destructive" aria-label="선택된 라벨 삭제 (Delete)" onclick={handleDelete}><Trash2 /></Button>
+    <Button variant="ghost" size="icon" aria-label="실행 취소 (Ctrl+Z)" onclick={handleUndo} disabled={!workspaceManager.canUndo}><Undo /></Button>
+    <Button variant="ghost" size="icon" aria-label="다시 실행 (Ctrl+Y)" onclick={handleRedo} disabled={!workspaceManager.canRedo}><Redo /></Button>
+    <Button variant="ghost" size="icon" class="mt-auto text-destructive" aria-label="선택된 라벨 삭제 (Delete)" onclick={handleDelete} disabled={!workspaceManager.selectedLabelId}><Trash2 /></Button>
   </div>
 </aside>

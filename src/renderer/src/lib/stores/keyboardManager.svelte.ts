@@ -8,6 +8,8 @@
 export type KeyboardAction =
   | 'prev-image' // A - 이전 이미지
   | 'next-image' // D - 다음 이미지
+  | 'prev-class' // 3 - 이전 클래스
+  | 'next-class' // 4 - 다음 클래스
   | 'select-tool' // V - 선택 도구
   | 'box-tool' // B - 박스 생성 도구
   | 'pan-tool' // P - 패닝 도구
@@ -23,6 +25,8 @@ export type KeyboardAction =
 export const ACTION_DESCRIPTIONS: Record<string, string> = {
   'prev-image': '이전 이미지',
   'next-image': '다음 이미지',
+  'prev-class': '이전 클래스',
+  'next-class': '다음 클래스',
   'select-tool': '선택 도구',
   'box-tool': '박스 생성 도구',
   'pan-tool': '이동 도구',
@@ -49,6 +53,8 @@ const KEY_BINDINGS: Record<string, KeyboardAction> = {
   A: 'prev-image',
   d: 'next-image',
   D: 'next-image',
+  '3': 'prev-class',
+  '4': 'next-class',
   v: 'select-tool',
   V: 'select-tool',
   b: 'box-tool',

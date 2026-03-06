@@ -54,6 +54,29 @@
   // 라벨 박스 맵 (labelId -> render objects)
   let labelBoxes = new Map<string, CanvasLabelObjects>();
 
+  function clearCanvasOverlays(): void {
+    if (!fabricCanvas) return;
+
+    if (drawingBox) {
+      fabricCanvas.remove(drawingBox);
+      drawingBox = null;
+    }
+
+    labelBoxes.forEach((objects) => {
+      fabricCanvas.remove(objects.rect);
+      fabricCanvas.remove(objects.badge.background);
+      fabricCanvas.remove(objects.badge.text);
+    });
+    labelBoxes.clear();
+  }
+
+  function clearCurrentImage(): void {
+    if (!fabricCanvas || !currentImageObject) return;
+
+    fabricCanvas.remove(currentImageObject);
+    currentImageObject = null;
+  }
+
   /**
    * 이미지의 화면상 좌상단 좌표 계산
    */
@@ -295,9 +318,6 @@
     // 워크스페이스에 추가
     workspaceManager.addBBAnnotation(annotation);
 
-    // 캔버스에 박스 렌더링
-    addBoxToCanvas(annotation);
-
     console.log('Label created:', annotation);
   }
 
@@ -362,8 +382,6 @@
         offset.y
       );
 
-      // annotation 데이터 업데이트
-      annotation.bbox = newBbox;
       workspaceManager.updateBBAnnotation(annotation.id, newBbox);
 
       // 뱃지 위치도 rect에 맞춰 동기화
@@ -444,13 +462,7 @@
   function renderLabels(): void {
     if (!fabricCanvas) return;
 
-    // 기존 박스 모두 제거
-    labelBoxes.forEach((objects) => {
-      fabricCanvas.remove(objects.rect);
-      fabricCanvas.remove(objects.badge.background);
-      fabricCanvas.remove(objects.badge.text);
-    });
-    labelBoxes.clear();
+    clearCanvasOverlays();
 
     // 현재 라벨 데이터에서 BBAnnotation만 렌더링
     const labelData = workspaceManager.currentLabelData;
@@ -537,20 +549,8 @@
     loadingImageId = targetId;
 
     try {
-      // 기존 이미지 제거
-      if (currentImageObject) {
-        fabricCanvas.remove(currentImageObject);
-        currentImageObject = null;
-      }
-
-      // 기존 라벨 박스 제거
-      labelBoxes.forEach((objects) => {
-        fabricCanvas!.remove(objects.rect);
-        fabricCanvas!.remove(objects.badge.background);
-        fabricCanvas!.remove(objects.badge.text);
-      });
-      labelBoxes.clear();
-      drawingBox = null;
+      clearCanvasOverlays();
+      clearCurrentImage();
 
       // 이미지 경로 가져오기 (비동기)
       const imagePath = await window.api.label.getImagePath(
@@ -572,7 +572,11 @@
       const img = await FabricImage.fromURL(imageUrl, { crossOrigin: "anonymous" });
 
       // await 이후: 더 최신 로드 요청이 선점했으면 폐기
-      if (loadingImageId !== targetId || !fabricCanvas) return;
+      if (loadingImageId !== targetId || !fabricCanvas) {
+        return;
+      }
+
+      clearCurrentImage();
 
       currentImageObject = img;
       workspaceManager.setImageSize(img.width || 0, img.height || 0);
@@ -747,6 +751,17 @@
     });
   }
 
+  function selectAdjacentClass(direction: -1 | 1): void {
+    const classes = workspaceManager.classList;
+    if (classes.length === 0) return;
+
+    const currentIndex = classes.findIndex((cls) => cls.id === workspaceManager.selectedClassId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (safeIndex + direction + classes.length) % classes.length;
+
+    workspaceManager.setSelectedClassId(classes[nextIndex].id);
+  }
+
   // 현재 이미지 변경 감지
   $effect(() => {
     if (workspaceManager.currentImage && fabricCanvas && isInitialized) {
@@ -765,6 +780,7 @@
   $effect(() => {
     const currentLabels = workspaceManager.currentLabels;
     if (!fabricCanvas || !isInitialized) return;
+    if (!currentImageObject) return;
 
     // 현재 캔버스에 있는 라벨 ID 집합 (스냅샷)
     const canvasLabelIds = new Set(labelBoxes.keys());
@@ -782,12 +798,28 @@
     const labelData = workspaceManager.currentLabelData;
     if (!labelData?.annotations) return;
 
-    // labelBoxes Map을 직접 참조하여 중복 추가 방지
+    const scale = currentImageObject.scaleX || 1;
+    const offset = getImageOffset();
+
+    // 추가/갱신 동기화
     labelData.annotations.forEach((ann) => {
-      if ('bbox' in ann && !labelBoxes.has(ann.id)) {
-        addBoxToCanvas(ann as BBAnnotation);
+      if (!('bbox' in ann)) return;
+
+      const annotation = ann as BBAnnotation;
+      const existingObjects = labelBoxes.get(annotation.id);
+
+      if (!existingObjects) {
+        addBoxToCanvas(annotation);
+        return;
       }
+
+      updateBoxPosition(existingObjects.rect, annotation.bbox, scale, offset.x, offset.y);
+      updateLabelBadgePosition(existingObjects.badge, annotation.bbox, scale, offset.x, offset.y);
+      setBoxSelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id);
+      existingObjects.rect.setCoords();
     });
+
+    fabricCanvas.requestRenderAll();
   });
 
   onMount(async () => {
@@ -824,15 +856,42 @@
       })
     );
 
+    cleanupHandlers.push(
+      keyboardManager.onAction('prev-class', () => {
+        selectAdjacentClass(-1);
+        console.log('Previous class selected:', workspaceManager.selectedClassId);
+      })
+    );
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('next-class', () => {
+        selectAdjacentClass(1);
+        console.log('Next class selected:', workspaceManager.selectedClassId);
+      })
+    );
+
     // Delete 키: 선택된 라벨 삭제
     cleanupHandlers.push(
       keyboardManager.onAction('delete', () => {
         const selectedId = workspaceManager.selectedLabelId;
         if (selectedId) {
           workspaceManager.deleteLabel(selectedId);
-          removeBoxFromCanvas(selectedId);
           console.log('Label deleted:', selectedId);
         }
+      })
+    );
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('undo', () => {
+        workspaceManager.undo();
+        console.log('Undo applied');
+      })
+    );
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('redo', () => {
+        workspaceManager.redo();
+        console.log('Redo applied');
       })
     );
 

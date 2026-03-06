@@ -19,11 +19,6 @@
     labelVisibility[labelId] = !labelVisibility[labelId];
   }
 
-  function handleClassSelect(event: Event) {
-    const target = event.target as HTMLInputElement;
-    workspaceManager.setSelectedClassId(parseInt(target.value));
-  }
-
   // 라벨 선택 (클릭 시)
   function handleLabelClick(labelId: string) {
     workspaceManager.setSelectedLabelId(labelId);
@@ -51,7 +46,7 @@
               {#if workspaceManager.classList.length > 0}
                 <RadioGroup 
                   value={String(workspaceManager.selectedClassId)} 
-                  onchange={handleClassSelect}
+                  onValueChange={(value) => workspaceManager.setSelectedClassId(parseInt(value))}
                   class="gap-1" 
                   aria-label="클래스 선택"
                 >

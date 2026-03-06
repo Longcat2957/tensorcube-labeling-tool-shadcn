@@ -17,6 +17,13 @@ export interface WorkspaceInfo {
   path: string;
 }
 
+// 워크스페이스 설정 수정 옵션
+export interface UpdateWorkspaceOptions {
+  workspace: string;
+  labelingType: 1 | 2;
+  classes: { id: number; name: string }[];
+}
+
 // 이미지 정보
 export interface ImageInfo {
   id: string; // 9자리 숫자

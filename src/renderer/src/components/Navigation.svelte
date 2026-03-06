@@ -7,6 +7,7 @@
   import CreateProjectDialog from "./dialogs/CreateProjectDialog.svelte";
   import OpenWorkspaceDialog from "./dialogs/OpenWorkspaceDialog.svelte";
   import ExportDialog from "./dialogs/ExportDialog.svelte";
+  import ProjectSettingsDialog from "./dialogs/ProjectSettingsDialog.svelte";
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
@@ -38,10 +39,14 @@
           {/snippet}
         </OpenWorkspaceDialog>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
-          <Settings class="size-4 mr-2" />
-          프로젝트 설정
-        </DropdownMenuItem>
+        <ProjectSettingsDialog>
+          {#snippet children()}
+            <div class="flex items-center px-2 py-1.5 text-sm cursor-pointer rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50">
+              <Settings class="size-4 mr-2" />
+              프로젝트 설정
+            </div>
+          {/snippet}
+        </ProjectSettingsDialog>
       </DropdownMenuContent>
     </DropdownMenu>
     <div class="font-semibold text-sm">
