@@ -3,11 +3,12 @@
  */
 
 import { writeFile } from 'fs/promises';
-import type { BBAnnotation, OBBAnnotation } from '../../../types/workspace.js';
-import type { ExportableItem } from '../types.js';
+import type { BBAnnotation, OBBAnnotation, OutOfBoundsPolicy } from '../../../types/workspace.js';
+import type { ExportableItem, ScaledSize } from '../types.js';
 import {
   writeExportImage,
   scaleObb,
+  applyOutOfBoundsPolicyToObb,
   createDatasetDirectories,
   getLabelPath,
   getImagePath,
@@ -20,7 +21,8 @@ import { writeDataYaml } from '../datasetYaml.js';
 function formatYoloObbLabel(
   annotation: BBAnnotation | OBBAnnotation,
   originalSize: { width: number; height: number },
-  targetSize: { width: number; height: number }
+  targetSize: ScaledSize,
+  outOfBounds: OutOfBoundsPolicy
 ): string | null {
   // YOLO-OBB 포맷은 OBB만 지원
   if (!('obb' in annotation)) {
@@ -28,14 +30,16 @@ function formatYoloObbLabel(
   }
 
   const scaled = scaleObb(annotation.obb, originalSize, targetSize);
+  const processed = applyOutOfBoundsPolicyToObb(scaled, targetSize, outOfBounds);
+  if (processed === null) return null;
 
   // 정규화 (cx, cy, w, h만 정규화, angle은 그대로)
-  const cxNorm = scaled.cx / targetSize.width;
-  const cyNorm = scaled.cy / targetSize.height;
-  const wNorm = scaled.width / targetSize.width;
-  const hNorm = scaled.height / targetSize.height;
+  const cxNorm = processed.cx / targetSize.width;
+  const cyNorm = processed.cy / targetSize.height;
+  const wNorm = processed.width / targetSize.width;
+  const hNorm = processed.height / targetSize.height;
 
-  return `${annotation.class_id} ${cxNorm.toFixed(6)} ${cyNorm.toFixed(6)} ${wNorm.toFixed(6)} ${hNorm.toFixed(6)} ${scaled.angle}`;
+  return `${annotation.class_id} ${cxNorm.toFixed(6)} ${cyNorm.toFixed(6)} ${wNorm.toFixed(6)} ${hNorm.toFixed(6)} ${processed.angle}`;
 }
 
 /**
@@ -47,8 +51,10 @@ export async function exportYoloObbDataset(
   classes: Record<number, string>,
   options: {
     resize?: { enabled: boolean; width: number; height: number };
+    outOfBounds?: OutOfBoundsPolicy;
   }
 ): Promise<{ exportedCount: number }> {
+  const outOfBounds = options.outOfBounds ?? 'clip';
   // 활성 split 확인
   const activeSplits = new Set(items.map(item => item.split));
   await createDatasetDirectories(exportPath, activeSplits);
@@ -73,7 +79,8 @@ export async function exportYoloObbDataset(
       const line = formatYoloObbLabel(
         annotation,
         item.labelData.image_info,
-        resized
+        resized,
+        outOfBounds
       );
       if (line) {
         lines.push(line);

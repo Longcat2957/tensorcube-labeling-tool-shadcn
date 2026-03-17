@@ -18,6 +18,7 @@ import {
   getClassColor,
   hexToRgba,
   BOX_STYLE,
+  badgeScale,
   type BoxRect,
   type BadgeObjects,
   BADGE_HEIGHT,
@@ -159,47 +160,55 @@ export function createLabelBadge(
     leftX = annotation.bbox[0]; // xmin
     topY = annotation.bbox[1];  // ymin
   } else {
-    // OBB: 회전된 박스의 left-top corner 계산
+    // OBB: 4코너 중 화면상 가장 위쪽(topmost) 코너 찾기
     const [cx, cy, w, h, angle] = annotation.obb;
     const rad = (angle * Math.PI) / 180;
     const halfW = w / 2;
     const halfH = h / 2;
-    
-    // 회전 변환 적용하여 left-top corner 위치 계산
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
-    leftX = cx + (-halfW * cos) - (-halfH * sin);
-    topY = cy + (-halfW * sin) + (-halfH * cos);
+
+    const corners = [
+      { x: cx + (-halfW) * cos - (-halfH) * sin, y: cy + (-halfW) * sin + (-halfH) * cos },
+      { x: cx + ( halfW) * cos - (-halfH) * sin, y: cy + ( halfW) * sin + (-halfH) * cos },
+      { x: cx + (-halfW) * cos - ( halfH) * sin, y: cy + (-halfW) * sin + ( halfH) * cos },
+      { x: cx + ( halfW) * cos - ( halfH) * sin, y: cy + ( halfW) * sin + ( halfH) * cos },
+    ];
+    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b));
+    leftX = topmost.x;
+    topY = topmost.y;
   }
   
-  // 스크린 좌표로 변환
-  const screenX = leftX * scale + offsetX;
-  const screenY = topY * scale + offsetY - BADGE_HEIGHT * scale;
+  const bs = badgeScale(scale);
   
-  // 텍스트 너비 계산
-  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * scale;
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * scale;
+  // 스크린 좌표로 변환 (위치는 여전히 scale 기준)
+  const screenX = leftX * scale + offsetX;
+  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs;
+  
+  // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
+  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs;
+  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs;
   
   // 배경
   const background = new Rect({
     left: screenX,
     top: screenY,
     width: badgeWidth,
-    height: BADGE_HEIGHT * scale,
+    height: BADGE_HEIGHT * bs,
     originX: 'left',
     originY: 'top',
     fill: color,
-    rx: 4 * scale,
-    ry: 4 * scale,
+    rx: 4 * bs,
+    ry: 4 * bs,
     selectable: false,
     evented: false,
   });
   
   // 텍스트
   const text = new Text(className, {
-    left: screenX + BADGE_PADDING * scale,
-    top: screenY + (BADGE_HEIGHT / 2) * scale,
-    fontSize: BADGE_FONT_SIZE * scale,
+    left: screenX + BADGE_PADDING * bs,
+    top: screenY + (BADGE_HEIGHT / 2) * bs,
+    fontSize: BADGE_FONT_SIZE * bs,
     fill: '#ffffff',
     originX: 'left',
     originY: 'center',

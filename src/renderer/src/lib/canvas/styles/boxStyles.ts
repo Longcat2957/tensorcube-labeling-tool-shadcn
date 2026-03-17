@@ -135,3 +135,9 @@ export function applySelectedStyle(rect: BoxRect, selected: boolean): void {
 export const BADGE_HEIGHT = 22;
 export const BADGE_PADDING = 8;
 export const BADGE_FONT_SIZE = 12;
+export const BADGE_MIN_SCALE = 0.5;
+
+/** 뱃지 스케일링: 제곱근 기반으로 축소 시 덜 줄어들고 확대 시 덜 커지도록 보정 */
+export function badgeScale(scale: number): number {
+  return Math.max(Math.sqrt(scale), BADGE_MIN_SCALE);
+}

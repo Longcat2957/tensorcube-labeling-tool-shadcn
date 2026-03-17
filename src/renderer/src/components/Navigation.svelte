@@ -21,7 +21,7 @@
       <DropdownMenuTrigger>
         <Button variant="ghost" size="icon" aria-label="메뉴 열기"><Menu /></Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent class="flex flex-col">
         <CreateProjectDialog>
           {#snippet children()}
             <div class="flex items-center px-2 py-1.5 text-sm cursor-pointer rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">

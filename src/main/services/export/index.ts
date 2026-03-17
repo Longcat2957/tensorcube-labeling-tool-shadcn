@@ -67,32 +67,29 @@ export async function exportWorkspace(
     let exportedCount: number;
 
     try {
+      const formatOptions = {
+        resize: options.resize,
+        outOfBounds: options.outOfBounds ?? 'clip',
+      };
+
       switch (options.format) {
         case 'yolo':
-          const yoloResult = await exportYoloDataset(items, exportDirPath, config.names, {
-            resize: options.resize,
-          });
+          const yoloResult = await exportYoloDataset(items, exportDirPath, config.names, formatOptions);
           exportedCount = yoloResult.exportedCount;
           break;
 
         case 'yolo-obb':
-          const yoloObbResult = await exportYoloObbDataset(items, exportDirPath, config.names, {
-            resize: options.resize,
-          });
+          const yoloObbResult = await exportYoloObbDataset(items, exportDirPath, config.names, formatOptions);
           exportedCount = yoloObbResult.exportedCount;
           break;
 
         case 'coco':
-          const cocoResult = await exportCocoDataset(items, exportDirPath, config.names, {
-            resize: options.resize,
-          });
+          const cocoResult = await exportCocoDataset(items, exportDirPath, config.names, formatOptions);
           exportedCount = cocoResult.exportedCount;
           break;
 
         case 'dota':
-          const dotaResult = await exportDotaDataset(items, exportDirPath, {
-            resize: options.resize,
-          });
+          const dotaResult = await exportDotaDataset(items, exportDirPath, formatOptions);
           exportedCount = dotaResult.exportedCount;
           break;
 

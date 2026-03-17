@@ -12,13 +12,6 @@
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
 
-  // 라벨 가시성 상태
-  let labelVisibility = $state<Record<string, boolean>>({});
-
-  function toggleLabelVisibility(labelId: string) {
-    labelVisibility[labelId] = !labelVisibility[labelId];
-  }
-
   // 라벨 선택 (클릭 시)
   function handleLabelClick(labelId: string) {
     workspaceManager.setSelectedLabelId(labelId);
@@ -80,7 +73,7 @@
               {#if workspaceManager.currentLabels.length > 0}
                 <div class="space-y-1" role="list" aria-label="라벨 목록">
                   {#each workspaceManager.currentLabels as label}
-                    {@const isVisible = labelVisibility[label.id] ?? true}
+                    {@const isVisible = label.visible}
                     {@const isSelected = workspaceManager.selectedLabelId === label.id}
                     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -103,7 +96,7 @@
                           size="icon" 
                           class="h-6 w-6 text-muted-foreground hover:text-foreground"
                           aria-label="{label.className} 라벨 보이기/숨기기"
-                          onclick={(e) => { e.stopPropagation(); toggleLabelVisibility(label.id); }}
+                          onclick={(e) => { e.stopPropagation(); workspaceManager.toggleLabelVisibility(label.id); }}
                         >
                           {#if isVisible}
                             <Eye class="h-3.5 w-3.5" />

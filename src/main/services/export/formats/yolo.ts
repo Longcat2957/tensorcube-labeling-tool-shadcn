@@ -3,12 +3,13 @@
  */
 
 import { writeFile } from 'fs/promises';
-import type { BBAnnotation, OBBAnnotation } from '../../../types/workspace.js';
+import type { BBAnnotation, OBBAnnotation, OutOfBoundsPolicy } from '../../../types/workspace.js';
 import type { ExportableItem } from '../types.js';
 import {
   writeExportImage,
   scaleBbox,
   normalizeBboxForYolo,
+  applyOutOfBoundsPolicyToYolo,
   createDatasetDirectories,
   getLabelPath,
   getImagePath,
@@ -21,7 +22,8 @@ import { writeDataYaml } from '../datasetYaml.js';
 function formatYoloLabel(
   annotation: BBAnnotation | OBBAnnotation,
   originalSize: { width: number; height: number },
-  targetSize: { width: number; height: number }
+  targetSize: { width: number; height: number },
+  outOfBounds: OutOfBoundsPolicy
 ): string | null {
   // YOLO 포맷은 BB만 지원
   if (!('bbox' in annotation)) {
@@ -30,8 +32,13 @@ function formatYoloLabel(
 
   const scaled = scaleBbox(annotation.bbox, originalSize, targetSize);
   const normalized = normalizeBboxForYolo(scaled, targetSize);
+  const processed = applyOutOfBoundsPolicyToYolo(normalized, outOfBounds);
+  if (processed === null) return null;
 
-  return `${annotation.class_id} ${normalized.cx.toFixed(6)} ${normalized.cy.toFixed(6)} ${normalized.width.toFixed(6)} ${normalized.height.toFixed(6)}`;
+  // clip 후 너비/높이가 0이면 유효하지 않은 박스로 간주
+  if (processed.width <= 0 || processed.height <= 0) return null;
+
+  return `${annotation.class_id} ${processed.cx.toFixed(6)} ${processed.cy.toFixed(6)} ${processed.width.toFixed(6)} ${processed.height.toFixed(6)}`;
 }
 
 /**
@@ -43,13 +50,16 @@ export async function exportYoloDataset(
   classes: Record<number, string>,
   options: {
     resize?: { enabled: boolean; width: number; height: number };
+    outOfBounds?: OutOfBoundsPolicy;
   }
 ): Promise<{ exportedCount: number }> {
+  const outOfBounds = options.outOfBounds ?? 'clip';
   console.log('[YOLO] Export 시작:', { 
     itemCount: items.length, 
     exportPath, 
     classes,
-    resize: options.resize 
+    resize: options.resize,
+    outOfBounds 
   });
   
   // 활성 split 확인
@@ -80,7 +90,8 @@ export async function exportYoloDataset(
         const line = formatYoloLabel(
           annotation,
           item.labelData.image_info,
-          resized
+          resized,
+          outOfBounds
         );
         if (line) {
           lines.push(line);

@@ -54,6 +54,7 @@
   let valRatio = $state(10);
   let testRatio = $state(10);
   let includeCompletedOnly = $state(false);
+  let outOfBounds = $state<"clip" | "skip" | "none">("clip");
   let exporting = $state(false);
   let exportName = $state("");
 
@@ -107,6 +108,7 @@
         width: resizeWidth,
         height: resizeHeight,
       },
+      outOfBounds,
       split: {
         train: trainRatio,
         val: valRatio,
@@ -227,6 +229,37 @@
         </div>
         <p class="text-xs text-muted-foreground">
           활성화하면 <code>_C.json</code> 상태만 내보냅니다. 비활성화하면 작업 중 라벨도 포함합니다.
+        </p>
+      </div>
+
+      <!-- 범위 초과 박스 처리 -->
+      <div class="space-y-2">
+        <Label>범위 초과 박스 처리</Label>
+        <RadioGroup bind:value={outOfBounds} class="grid grid-cols-3 gap-2">
+          <div class="flex items-center space-x-2 rounded-md border p-3 transition-colors hover:bg-muted/50">
+            <RadioGroupItem value="clip" id="oob-clip" />
+            <Label for="oob-clip" class="cursor-pointer font-normal">
+              <span class="block font-medium">잘라내기</span>
+              <span class="text-xs text-muted-foreground">경계로 clamp</span>
+            </Label>
+          </div>
+          <div class="flex items-center space-x-2 rounded-md border p-3 transition-colors hover:bg-muted/50">
+            <RadioGroupItem value="skip" id="oob-skip" />
+            <Label for="oob-skip" class="cursor-pointer font-normal">
+              <span class="block font-medium">건너뛰기</span>
+              <span class="text-xs text-muted-foreground">해당 박스 제외</span>
+            </Label>
+          </div>
+          <div class="flex items-center space-x-2 rounded-md border p-3 transition-colors hover:bg-muted/50">
+            <RadioGroupItem value="none" id="oob-none" />
+            <Label for="oob-none" class="cursor-pointer font-normal">
+              <span class="block font-medium">무시</span>
+              <span class="text-xs text-muted-foreground">원본 유지</span>
+            </Label>
+          </div>
+        </RadioGroup>
+        <p class="text-xs text-muted-foreground">
+          이미지 범위를 벗어나는 박스 좌표의 처리 방식을 선택합니다.
         </p>
       </div>
 

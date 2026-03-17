@@ -8,7 +8,7 @@ import { readdir } from 'fs/promises';
 import { basename, extname, join } from 'path';
 import sharp from 'sharp';
 import { ensureDir, readJsonFile } from '../fileService.js';
-import type { LabelData } from '../../types/workspace.js';
+import type { LabelData, OutOfBoundsPolicy } from '../../types/workspace.js';
 import type { ExportableItem, ScaledSize, ScaledBbox, ScaledObb } from './types.js';
 
 export const WORKSPACE_FILE = 'workspace.yaml';
@@ -296,4 +296,152 @@ export function getLabelPath(imageFilename: string, split: string, basePath: str
  */
 export function getImagePath(imageFilename: string, split: string, basePath: string): string {
   return join(basePath, split, 'images', imageFilename);
+}
+
+// ---- Out-of-Bounds 처리 유틸리티 ----
+
+/**
+ * BB가 이미지 범위를 벗어나는지 검사
+ * x1 < 0, y1 < 0, x2 > width, y2 > height 중 하나라도 true면 out-of-bounds
+ */
+export function isBboxOutOfBounds(
+  bbox: ScaledBbox,
+  imageSize: ScaledSize
+): boolean {
+  return (
+    bbox.x1 < 0 ||
+    bbox.y1 < 0 ||
+    bbox.x2 > imageSize.width ||
+    bbox.y2 > imageSize.height
+  );
+}
+
+/**
+ * BB를 이미지 경계로 clamp (잘라내기)
+ */
+export function clampBbox(
+  bbox: ScaledBbox,
+  imageSize: ScaledSize
+): ScaledBbox {
+  return {
+    x1: Math.max(0, bbox.x1),
+    y1: Math.max(0, bbox.y1),
+    x2: Math.min(imageSize.width, bbox.x2),
+    y2: Math.min(imageSize.height, bbox.y2),
+  };
+}
+
+/**
+ * YOLO 정규화 좌표를 [0, 1] 범위로 clamp
+ * w, h는 음수가 되지 않도록 보장
+ */
+export function clampYoloNormalized(
+  normalized: { cx: number; cy: number; width: number; height: number }
+): { cx: number; cy: number; width: number; height: number } {
+  const halfW = Math.max(0, normalized.width) / 2;
+  const halfH = Math.max(0, normalized.height) / 2;
+  const cx = Math.max(halfW, Math.min(1 - halfW, normalized.cx));
+  const cy = Math.max(halfH, Math.min(1 - halfH, normalized.cy));
+  return {
+    cx,
+    cy,
+    width: Math.max(0, Math.min(cx + halfW, 1) - Math.max(cx - halfW, 0)) * 2,
+    height: Math.max(0, Math.min(cy + halfH, 1) - Math.max(cy - halfH, 0)) * 2,
+  };
+}
+
+/**
+ * OBB가 비정상적으로 범위를 벗어나는지 검사
+ * 회전 박스는 코너가 이미지 밖으로 나가는 것이 정상이므로,
+ * 중심점이 이미지 범위를 크게 벗어나거나 크기가 무효인 경우만 체크
+ */
+export function isObbOutOfBounds(
+  obb: ScaledObb,
+  imageSize: ScaledSize
+): boolean {
+  const maxDim = Math.max(imageSize.width, imageSize.height);
+  // 중심점이 이미지 대각선 길이의 절반 이상 벗어나면 비정상
+  const maxOffset = maxDim * 0.5;
+  if (obb.cx < -maxOffset || obb.cx > imageSize.width + maxOffset) return true;
+  if (obb.cy < -maxOffset || obb.cy > imageSize.height + maxOffset) return true;
+  // 너비나 높이가 0 이하이면 무효
+  if (obb.width <= 0 || obb.height <= 0) return true;
+  return false;
+}
+
+/**
+ * OBB 중심점을 이미지 경계 근처로 clamp
+ * 코너 초과는 정상이므로 중심점만 보수적으로 clamp
+ */
+export function clampObb(
+  obb: ScaledObb,
+  imageSize: ScaledSize
+): ScaledObb {
+  const halfW = obb.width / 2;
+  const halfH = obb.height / 2;
+  return {
+    ...obb,
+    cx: Math.max(halfW, Math.min(imageSize.width - halfW, obb.cx)),
+    cy: Math.max(halfH, Math.min(imageSize.height - halfH, obb.cy)),
+  };
+}
+
+/**
+ * 폴리곤 점들을 이미지 경계로 clamp (DOTA 포맷용)
+ */
+export function clampPolygon(
+  polygon: number[]
+): number[] {
+  return polygon.map((val, idx) => {
+    // 짝수 인덱스 = x, 홀수 인덱스 = y — 하지만 imageSize가 필요하므로 별도 함수 사용
+    return Math.max(0, val);
+  });
+}
+
+/**
+ * Out-of-Bounds 정책에 따라 ScaledBbox 처리
+ * - 'clip': 이미지 경계로 clamp
+ * - 'skip': 범위 밖이면 null 반환
+ * - 'none': 그대로 반환
+ */
+export function applyOutOfBoundsPolicyToBbox(
+  bbox: ScaledBbox,
+  imageSize: ScaledSize,
+  policy: OutOfBoundsPolicy
+): ScaledBbox | null {
+  if (policy === 'none') return bbox;
+  if (policy === 'skip' && isBboxOutOfBounds(bbox, imageSize)) return null;
+  if (policy === 'clip') return clampBbox(bbox, imageSize);
+  return bbox;
+}
+
+/**
+ * Out-of-Bounds 정책에 따라 YOLO 정규화 좌표 처리
+ */
+export function applyOutOfBoundsPolicyToYolo(
+  normalized: { cx: number; cy: number; width: number; height: number },
+  policy: OutOfBoundsPolicy
+): { cx: number; cy: number; width: number; height: number } | null {
+  if (policy === 'none') return normalized;
+  const isOutOfBounds =
+    normalized.cx < 0 || normalized.cx > 1 ||
+    normalized.cy < 0 || normalized.cy > 1 ||
+    normalized.width < 0 || normalized.height < 0;
+  if (policy === 'skip' && isOutOfBounds) return null;
+  if (policy === 'clip') return clampYoloNormalized(normalized);
+  return normalized;
+}
+
+/**
+ * Out-of-Bounds 정책에 따라 ScaledObb 처리
+ */
+export function applyOutOfBoundsPolicyToObb(
+  obb: ScaledObb,
+  imageSize: ScaledSize,
+  policy: OutOfBoundsPolicy
+): ScaledObb | null {
+  if (policy === 'none') return obb;
+  if (policy === 'skip' && isObbOutOfBounds(obb, imageSize)) return null;
+  if (policy === 'clip') return clampObb(obb, imageSize);
+  return obb;
 }

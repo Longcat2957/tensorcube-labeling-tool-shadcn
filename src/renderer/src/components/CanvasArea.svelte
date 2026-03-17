@@ -13,7 +13,7 @@
   } from "$lib/canvas/core/imageLoader.js";
 
   // 인터랙션 모듈
-  import { handleMouseWheel } from "$lib/canvas/interaction/zoomHandler.js";
+  import { handleMouseWheel, handleOBBWheelRotation } from "$lib/canvas/interaction/zoomHandler.js";
   import { 
     handleMouseDown,
     handleMouseMove,
@@ -88,11 +88,24 @@
     // 이벤트 핸들러 등록
     registerCanvasEvents(fabricCanvas, {
       onWheel: (event) => {
-        if (fabricCanvas && currentImageObject) {
-          handleMouseWheel(event, fabricCanvas, currentImageObject, workspaceManager);
-          updateAllBoxPositions(getContext(), labelBoxes);
-          fabricCanvas.requestRenderAll();
+        if (!fabricCanvas || !currentImageObject) return;
+        
+        const e = event.e;
+        
+        // OBB 선택 상태에서 Ctrl 없이 휠 → 회전
+        if (!e.ctrlKey && workspaceManager.selectedLabelId) {
+          const objects = labelBoxes.get(workspaceManager.selectedLabelId);
+          if (objects?.rect.data.shape === 'obb') {
+            e.preventDefault();
+            handleOBBWheelRotation(objects.rect, e.deltaY);
+            fabricCanvas.requestRenderAll();
+            return;
+          }
         }
+        
+        handleMouseWheel(event, fabricCanvas, currentImageObject, workspaceManager);
+        updateAllBoxPositions(getContext(), labelBoxes);
+        fabricCanvas.requestRenderAll();
       },
       onMouseDown: (opt) => {
         handleMouseDown(opt, getMouseHandlerContext(), mouseHandlerState);
@@ -232,6 +245,22 @@
     if (!fabricCanvas || !isInitialized || !currentImageObject || !labelData) return;
     
     syncLabelChanges(getContext(), labelBoxes);
+  });
+
+  // 라벨 가시성 변경 감지 → 캔버스 객체 visible 토글
+  $effect(() => {
+    // 의존성 명시: currentLabels의 visible 프로퍼티 변화 감지
+    if (workspaceManager.currentLabels.length === 0) return;
+    if (!fabricCanvas) return;
+    
+    for (const [labelId, objects] of labelBoxes) {
+      const visible = workspaceManager.isLabelVisible(labelId);
+      objects.rect.set({ visible });
+      objects.badge.background.set({ visible });
+      objects.badge.text.set({ visible });
+    }
+    
+    fabricCanvas.requestRenderAll();
   });
 
   // ============================================

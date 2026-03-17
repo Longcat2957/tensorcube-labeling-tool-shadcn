@@ -40,6 +40,9 @@ let imageHeight = $state<number>(0);
 // 선택된 라벨 ID
 let selectedLabelId = $state<string | null>(null);
 
+// 라벨 가시성 상태
+let labelVisibility = $state<Record<string, boolean>>({});
+
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null);
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null);
@@ -67,7 +70,7 @@ const currentLabels = $derived(() => {
     classId: ann.class_id,
     className: workspaceConfig?.names?.[ann.class_id] ?? `Class ${ann.class_id}`,
     color: getClassColor(ann.class_id),
-    visible: true
+    visible: labelVisibility[ann.id] ?? true
   }));
 });
 
@@ -175,6 +178,7 @@ async function loadCurrentImageLabel(): Promise<void> {
   currentLabelData = data;
   resetHistory();
   selectedLabelId = null;
+  labelVisibility = {};
 }
 
 // 이미지 이동
@@ -319,6 +323,14 @@ function resetCanvasState(): void {
 // 라벨 관리 메서드
 function setSelectedLabelId(id: string | null): void {
   selectedLabelId = id;
+}
+
+function toggleLabelVisibility(labelId: string): void {
+  labelVisibility[labelId] = !(labelVisibility[labelId] ?? true);
+}
+
+function isLabelVisible(labelId: string): boolean {
+  return labelVisibility[labelId] ?? true;
 }
 
 function addBBAnnotation(annotation: BBAnnotation): void {
@@ -514,6 +526,8 @@ export function createWorkspaceManager() {
     
     // 라벨 관리 메서드
     setSelectedLabelId,
+    toggleLabelVisibility,
+    isLabelVisible,
     addBBAnnotation,
     addOBBAnnotation,
     updateBBAnnotation,

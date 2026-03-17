@@ -3,12 +3,13 @@
  */
 
 import { writeFile } from 'fs/promises';
-import type { BBAnnotation, OBBAnnotation } from '../../../types/workspace.js';
-import type { ExportableItem } from '../types.js';
+import type { BBAnnotation, OBBAnnotation, OutOfBoundsPolicy } from '../../../types/workspace.js';
+import type { ExportableItem, ScaledSize } from '../types.js';
 import {
   writeExportImage,
   scaleObb,
   obbToPolygon,
+  applyOutOfBoundsPolicyToObb,
   createDatasetDirectories,
   getLabelPath,
   getImagePath,
@@ -21,7 +22,8 @@ import {
 function formatDotaLabel(
   annotation: BBAnnotation | OBBAnnotation,
   originalSize: { width: number; height: number },
-  targetSize: { width: number; height: number }
+  targetSize: ScaledSize,
+  outOfBounds: OutOfBoundsPolicy
 ): string | null {
   // DOTA 포맷은 OBB만 지원
   if (!('obb' in annotation)) {
@@ -29,7 +31,10 @@ function formatDotaLabel(
   }
 
   const scaled = scaleObb(annotation.obb, originalSize, targetSize);
-  const polygon = obbToPolygon(scaled);
+  const processed = applyOutOfBoundsPolicyToObb(scaled, targetSize, outOfBounds);
+  if (processed === null) return null;
+
+  const polygon = obbToPolygon(processed);
 
   // DOTA 포맷: x1 y1 x2 y2 x3 y3 x4 y4 class_id
   return `${polygon.join(' ')} ${annotation.class_id}`;
@@ -43,8 +48,10 @@ export async function exportDotaDataset(
   exportPath: string,
   options: {
     resize?: { enabled: boolean; width: number; height: number };
+    outOfBounds?: OutOfBoundsPolicy;
   }
 ): Promise<{ exportedCount: number }> {
+  const outOfBounds = options.outOfBounds ?? 'clip';
   // 활성 split 확인
   const activeSplits = new Set(items.map(item => item.split));
   await createDatasetDirectories(exportPath, activeSplits);
@@ -69,7 +76,8 @@ export async function exportDotaDataset(
       const line = formatDotaLabel(
         annotation,
         item.labelData.image_info,
-        resized
+        resized,
+        outOfBounds
       );
       if (line) {
         lines.push(line);

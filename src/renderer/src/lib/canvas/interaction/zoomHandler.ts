@@ -5,11 +5,13 @@
 import { Canvas, FabricImage } from "fabric";
 import type { WorkspaceManager } from "../../stores/workspace.svelte.js";
 import { updateViewportState } from "../core/imageLoader.js";
+import type { BoxRect } from "../styles/boxStyles.js";
 
 // 줌 범위 설정
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 5.0;
 export const ZOOM_STEP = 0.1;
+export const ROTATION_STEP = 1; // 도 단위
 
 /**
  * 줌 적용
@@ -72,4 +74,17 @@ export function handleMouseWheel(
   }
 
   applyZoom(newZoom, fabricCanvas, imageObject, workspaceManager);
+}
+
+/**
+ * OBB 마우스 휠 회전 (선택된 OBB 박스를 휠로 회전)
+ */
+export function handleOBBWheelRotation(
+  rect: BoxRect,
+  deltaY: number
+): void {
+  const direction = deltaY > 0 ? ROTATION_STEP : -ROTATION_STEP;
+  rect.set({ angle: (rect.angle + direction) % 360 });
+  rect.setCoords();
+  rect.fire('modified');
 }

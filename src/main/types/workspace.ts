@@ -67,12 +67,14 @@ export interface LabelData {
 }
 
 export type ExportFormat = 'yolo' | 'coco' | 'yolo-obb' | 'dota';
+export type OutOfBoundsPolicy = 'clip' | 'skip' | 'none';
 
 export interface ExportOptions {
   format: ExportFormat;
   outputPath: string;
   exportName: string;
   includeCompletedOnly: boolean;
+  outOfBounds?: OutOfBoundsPolicy;
   resize?: {
     enabled: boolean;
     width: number;

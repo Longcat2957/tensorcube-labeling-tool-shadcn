@@ -3,10 +3,12 @@
  */
 
 import { writeFile } from 'fs/promises';
+import type { OutOfBoundsPolicy } from '../../../types/workspace.js';
 import type { ExportableItem, CocoImage, CocoAnnotation, CocoCategory, CocoDataset } from '../types.js';
 import {
   writeExportImage,
   scaleBbox,
+  applyOutOfBoundsPolicyToBbox,
   createCocoDirectories,
   getImagePath,
 } from '../utils.js';
@@ -20,8 +22,11 @@ export async function exportCocoDataset(
   classes: Record<number, string>,
   options: {
     resize?: { enabled: boolean; width: number; height: number };
+    outOfBounds?: OutOfBoundsPolicy;
   }
 ): Promise<{ exportedCount: number }> {
+  const outOfBounds = options.outOfBounds ?? 'clip';
+
   // 활성 split 확인
   const activeSplits = [...new Set(items.map(item => item.split))] as ('train' | 'val' | 'test')[];
   await createCocoDirectories(exportPath, new Set(activeSplits));
@@ -65,14 +70,18 @@ export async function exportCocoDataset(
         if (!('bbox' in annotation)) continue;
 
         const scaled = scaleBbox(annotation.bbox, item.labelData.image_info, resized);
-        const width = Math.max(0, scaled.x2 - scaled.x1);
-        const height = Math.max(0, scaled.y2 - scaled.y1);
+        const processed = applyOutOfBoundsPolicyToBbox(scaled, resized, outOfBounds);
+        if (processed === null) continue;
+
+        const width = Math.max(0, processed.x2 - processed.x1);
+        const height = Math.max(0, processed.y2 - processed.y1);
+        if (width <= 0 || height <= 0) continue;
 
         annotations.push({
           id: annotationId++,
           image_id: imageId,
           category_id: annotation.class_id,
-          bbox: [scaled.x1, scaled.y1, width, height],
+          bbox: [processed.x1, processed.y1, width, height],
           area: width * height,
           iscrowd: 0,
         });

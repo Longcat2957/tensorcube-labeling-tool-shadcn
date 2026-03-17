@@ -9,6 +9,7 @@
 
 import type { FabricObject } from "fabric";
 import type { BoxRect, BadgeObjects } from "./styles/boxStyles.js";
+import { badgeScale, BADGE_HEIGHT, BADGE_PADDING, BADGE_FONT_SIZE } from "./styles/boxStyles.js";
 import { bboxToScreen, obbToScreen, type ImageBBox, type ImageOBB } from "./coordinates.js";
 
 // ============================================
@@ -81,10 +82,6 @@ export function updateBoxPosition(
 // 뱃지 위치 업데이트
 // ============================================
 
-const BADGE_HEIGHT = 22;
-const BADGE_PADDING = 8;
-const BADGE_FONT_SIZE = 12;
-
 /**
  * 뱃지 위치 업데이트
  * bbox의 left-top point 위쪽에 표시
@@ -106,36 +103,46 @@ export function updateBadgePosition(
     leftX = xmin;
     topY = ymin;
   } else {
-    // OBB: 회전된 박스의 left-top corner 계산
+    // OBB: 4코너 중 화면상 가장 위쪽(topmost) 코너 찾기
     const [cx, cy, w, h, angle] = coords as ImageOBB;
     const rad = (angle * Math.PI) / 180;
     const halfW = w / 2;
     const halfH = h / 2;
-    
-    // 회전 변환 적용하여 left-top corner 위치 계산
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
-    leftX = cx + (-halfW * cos) - (-halfH * sin);
-    topY = cy + (-halfW * sin) + (-halfH * cos);
+
+    const corners = [
+      { x: cx + (-halfW) * cos - (-halfH) * sin, y: cy + (-halfW) * sin + (-halfH) * cos },
+      { x: cx + ( halfW) * cos - (-halfH) * sin, y: cy + ( halfW) * sin + (-halfH) * cos },
+      { x: cx + (-halfW) * cos - ( halfH) * sin, y: cy + (-halfW) * sin + ( halfH) * cos },
+      { x: cx + ( halfW) * cos - ( halfH) * sin, y: cy + ( halfW) * sin + ( halfH) * cos },
+    ];
+    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b));
+    leftX = topmost.x;
+    topY = topmost.y;
   }
   
+  const bs = badgeScale(scale);
   const screenX = leftX * scale + offsetX;
-  const screenY = topY * scale + offsetY - BADGE_HEIGHT * scale;
+  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs;
   
-  // 텍스트 너비 계산
-  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * scale;
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * scale;
+  // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
+  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs;
+  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs;
   
   badge.background.set({
     left: screenX,
     top: screenY,
     width: badgeWidth,
-    height: BADGE_HEIGHT * scale,
+    height: BADGE_HEIGHT * bs,
+    rx: 4 * bs,
+    ry: 4 * bs,
   });
   
   badge.text.set({
-    left: screenX + BADGE_PADDING * scale,
-    top: screenY + (BADGE_HEIGHT / 2) * scale,
+    left: screenX + BADGE_PADDING * bs,
+    top: screenY + (BADGE_HEIGHT / 2) * bs,
+    fontSize: BADGE_FONT_SIZE * bs,
   });
 }
 
