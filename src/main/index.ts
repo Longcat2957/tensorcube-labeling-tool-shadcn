@@ -2,16 +2,24 @@ import { app, shell, BrowserWindow, protocol } from 'electron'
 import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import pkg from 'electron-updater'
+const { autoUpdater } = pkg
 import icon from '../../resources/icon.png?asset'
 import { registerDialogHandlers } from './ipc/dialogHandler.js'
 import { registerWorkspaceHandlers } from './ipc/workspaceHandler.js'
 import { registerLabelHandlers } from './ipc/labelHandler.js'
+import { loadWindowState, attachWindowStateTracker } from './services/windowState.js'
 
-function createWindow(): void {
-  // Create the browser window.
+async function createWindow(): Promise<void> {
+  const state = await loadWindowState()
+
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: state.width,
+    height: state.height,
+    x: state.x,
+    y: state.y,
+    minWidth: 960,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -20,6 +28,12 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  if (state.isMaximized) {
+    mainWindow.maximize()
+  }
+
+  attachWindowStateTracker(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -59,7 +73,7 @@ function registerWorkspaceProtocol(): void {
       return new Response(data, {
         headers: { 'Content-Type': mimeType }
       })
-    } catch (error) {
+    } catch {
       return new Response('File not found', { status: 404 })
     }
   })
@@ -87,12 +101,22 @@ app.whenReady().then(() => {
   registerWorkspaceHandlers()
   registerLabelHandlers()
 
-  createWindow()
+  // Check for updates in packaged builds. Dev/HMR runs skip this.
+  if (!is.dev) {
+    autoUpdater.logger = null
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.warn('[autoUpdater] check failed:', err?.message ?? err)
+    })
+  }
+
+  void createWindow()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
 })
 

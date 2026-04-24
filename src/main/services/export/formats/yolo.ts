@@ -2,9 +2,9 @@
  * YOLO 포맷 (Bounding Box) 익스포터
  */
 
-import { writeFile } from 'fs/promises';
-import type { BBAnnotation, OBBAnnotation, OutOfBoundsPolicy } from '../../../types/workspace.js';
-import type { ExportableItem } from '../types.js';
+import { writeFile } from 'fs/promises'
+import type { BBAnnotation, OBBAnnotation, OutOfBoundsPolicy } from '../../../../shared/types.js'
+import type { ExportableItem } from '../types.js'
 import {
   writeExportImage,
   scaleBbox,
@@ -12,9 +12,9 @@ import {
   applyOutOfBoundsPolicyToYolo,
   createDatasetDirectories,
   getLabelPath,
-  getImagePath,
-} from '../utils.js';
-import { writeDataYaml } from '../datasetYaml.js';
+  getImagePath
+} from '../utils.js'
+import { writeDataYaml } from '../datasetYaml.js'
 
 /**
  * YOLO 라벨 라인 생성 (정규화된 cx, cy, w, h)
@@ -27,18 +27,18 @@ function formatYoloLabel(
 ): string | null {
   // YOLO 포맷은 BB만 지원
   if (!('bbox' in annotation)) {
-    return null;
+    return null
   }
 
-  const scaled = scaleBbox(annotation.bbox, originalSize, targetSize);
-  const normalized = normalizeBboxForYolo(scaled, targetSize);
-  const processed = applyOutOfBoundsPolicyToYolo(normalized, outOfBounds);
-  if (processed === null) return null;
+  const scaled = scaleBbox(annotation.bbox, originalSize, targetSize)
+  const normalized = normalizeBboxForYolo(scaled, targetSize)
+  const processed = applyOutOfBoundsPolicyToYolo(normalized, outOfBounds)
+  if (processed === null) return null
 
   // clip 후 너비/높이가 0이면 유효하지 않은 박스로 간주
-  if (processed.width <= 0 || processed.height <= 0) return null;
+  if (processed.width <= 0 || processed.height <= 0) return null
 
-  return `${annotation.class_id} ${processed.cx.toFixed(6)} ${processed.cy.toFixed(6)} ${processed.width.toFixed(6)} ${processed.height.toFixed(6)}`;
+  return `${annotation.class_id} ${processed.cx.toFixed(6)} ${processed.cy.toFixed(6)} ${processed.width.toFixed(6)} ${processed.height.toFixed(6)}`
 }
 
 /**
@@ -49,71 +49,62 @@ export async function exportYoloDataset(
   exportPath: string,
   classes: Record<number, string>,
   options: {
-    resize?: { enabled: boolean; width: number; height: number };
-    outOfBounds?: OutOfBoundsPolicy;
+    resize?: { enabled: boolean; width: number; height: number }
+    outOfBounds?: OutOfBoundsPolicy
   }
 ): Promise<{ exportedCount: number }> {
-  const outOfBounds = options.outOfBounds ?? 'clip';
-  console.log('[YOLO] Export 시작:', { 
-    itemCount: items.length, 
-    exportPath, 
+  const outOfBounds = options.outOfBounds ?? 'clip'
+  console.log('[YOLO] Export 시작:', {
+    itemCount: items.length,
+    exportPath,
     classes,
     resize: options.resize,
-    outOfBounds 
-  });
-  
+    outOfBounds
+  })
+
   // 활성 split 확인
-  const activeSplits = new Set(items.map(item => item.split));
-  console.log('[YOLO] 활성 split:', [...activeSplits]);
-  
-  await createDatasetDirectories(exportPath, activeSplits);
+  const activeSplits = new Set(items.map((item) => item.split))
+  console.log('[YOLO] 활성 split:', [...activeSplits])
+
+  await createDatasetDirectories(exportPath, activeSplits)
 
   // 아이템 처리
-  let exportedCount = 0;
-  let errorCount = 0;
+  let exportedCount = 0
+  let errorCount = 0
 
   for (const item of items) {
     try {
-      const imageOutPath = getImagePath(item.imageFilename, item.split, exportPath);
-      const labelOutPath = getLabelPath(item.imageFilename, item.split, exportPath);
+      const imageOutPath = getImagePath(item.imageFilename, item.split, exportPath)
+      const labelOutPath = getLabelPath(item.imageFilename, item.split, exportPath)
 
       // 이미지 복사/리사이즈
-      const resized = await writeExportImage(
-        item.imagePath,
-        imageOutPath,
-        options.resize
-      );
+      const resized = await writeExportImage(item.imagePath, imageOutPath, options.resize)
 
       // 라벨 파일 생성
-      const lines: string[] = [];
+      const lines: string[] = []
       for (const annotation of item.labelData.annotations) {
-        const line = formatYoloLabel(
-          annotation,
-          item.labelData.image_info,
-          resized,
-          outOfBounds
-        );
+        const line = formatYoloLabel(annotation, item.labelData.image_info, resized, outOfBounds)
         if (line) {
-          lines.push(line);
+          lines.push(line)
         }
       }
 
-      await writeFile(labelOutPath, lines.join('\n'), 'utf-8');
-      exportedCount++;
-      
+      await writeFile(labelOutPath, lines.join('\n'), 'utf-8')
+      exportedCount++
+
       if (exportedCount % 100 === 0) {
-        console.log(`[YOLO] 진행 중: ${exportedCount}/${items.length}`);
+        console.log(`[YOLO] 진행 중: ${exportedCount}/${items.length}`)
       }
     } catch (error) {
-      console.error('[YOLO] 아이템 처리 실패:', item.imageFilename, error);
-      errorCount++;
+      console.error('[YOLO] 아이템 처리 실패:', item.imageFilename, error)
+      errorCount++
     }
   }
 
   // data.yaml 생성
-  const hasTest = activeSplits.has('test');
-  await writeDataYaml(exportPath, classes, { hasTestSplit: hasTest });
-  
-  console.log('[YOLO] Export 완료:', { exportedCount, errorCount });
-  return { exportedCount };
+  const hasTest = activeSplits.has('test')
+  await writeDataYaml(exportPath, classes, { hasTestSplit: hasTest })
+
+  console.log('[YOLO] Export 완료:', { exportedCount, errorCount })
+  return { exportedCount }
 }

@@ -5,10 +5,13 @@
     <title>tensorcube labeling tool</title>
     <script>
       // 로컬 스토리지에 저장된 테마가 'dark' 이거나, 저장된 게 없는데 OS 설정이 다크모드일 경우
-      if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
+      if (
+        localStorage.getItem('theme') === 'dark' ||
+        (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ) {
+        document.documentElement.classList.add('dark')
       } else {
-        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.remove('dark')
       }
     </script>
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->

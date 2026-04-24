@@ -10,8 +10,8 @@ export {
   normalizeBbox,
   bboxToObb,
   obbToBbox,
-  screenToObb,
-} from "./coordinates.js";
+  screenToObb
+} from './coordinates.js'
 
 // 스타일
 export {
@@ -21,8 +21,8 @@ export {
   DEFAULT_BOX_STYLE,
   type BoxStyleOptions,
   type LabelBoxData,
-  type LabelBoxRect,
-} from "./styles/boxStyles.js";
+  type LabelBoxRect
+} from './styles/boxStyles.js'
 
 // 박스 생성
 export {
@@ -30,12 +30,12 @@ export {
   createOBBLabelBox,
   createLabelBadge,
   createDrawingBox,
-  type LabelBadgeObjects,
-} from "./boxFactory.js";
+  type LabelBadgeObjects
+} from './boxFactory.js'
 
 // 유틸리티
 export {
   updateBoxPosition,
   updateLabelBadgePosition,
-  normalizeObbRectAfterModify,
-} from "./boxUtils.js";
+  normalizeObbRectAfterModify
+} from './boxUtils.js'

@@ -1,16 +1,16 @@
 /**
  * 박스 유틸리티
  * 위치 업데이트 및 기타 유틸리티 함수
- * 
+ *
  * 핵심 원칙:
  * - 모든 좌표는 이미지 픽셀 단위 (실수)
  * - 스크린 변환은 렌더링 시에만 수행
  */
 
-import type { FabricObject } from "fabric";
-import type { BoxRect, BadgeObjects } from "./styles/boxStyles.js";
-import { badgeScale, BADGE_HEIGHT, BADGE_PADDING, BADGE_FONT_SIZE } from "./styles/boxStyles.js";
-import { bboxToScreen, obbToScreen, type ImageBBox, type ImageOBB } from "./coordinates.js";
+import type { FabricObject } from 'fabric'
+import type { BoxRect, BadgeObjects } from './styles/boxStyles.js'
+import { badgeScale, BADGE_HEIGHT, BADGE_PADDING, BADGE_FONT_SIZE } from './styles/boxStyles.js'
+import { bboxToScreen, obbToScreen, type ImageBBox, type ImageOBB } from './coordinates.js'
 
 // ============================================
 // 박스 위치 업데이트
@@ -26,16 +26,16 @@ export function updateBBRectPosition(
   offsetX: number,
   offsetY: number
 ): void {
-  const screen = bboxToScreen(bbox, scale, offsetX, offsetY);
-  
+  const screen = bboxToScreen(bbox, scale, offsetX, offsetY)
+
   rect.set({
     left: screen.left,
     top: screen.top,
     width: screen.width,
-    height: screen.height,
-  });
-  
-  rect.setCoords();
+    height: screen.height
+  })
+
+  rect.setCoords()
 }
 
 /**
@@ -48,17 +48,17 @@ export function updateOBBRectPosition(
   offsetX: number,
   offsetY: number
 ): void {
-  const screen = obbToScreen(obb, scale, offsetX, offsetY);
-  
+  const screen = obbToScreen(obb, scale, offsetX, offsetY)
+
   rect.set({
     left: screen.left,
     top: screen.top,
     width: screen.width,
     height: screen.height,
-    angle: screen.angle,
-  });
-  
-  rect.setCoords();
+    angle: screen.angle
+  })
+
+  rect.setCoords()
 }
 
 /**
@@ -72,9 +72,9 @@ export function updateBoxPosition(
   offsetY: number
 ): void {
   if (rect.data.shape === 'bb') {
-    updateBBRectPosition(rect, coords as ImageBBox, scale, offsetX, offsetY);
+    updateBBRectPosition(rect, coords as ImageBBox, scale, offsetX, offsetY)
   } else {
-    updateOBBRectPosition(rect, coords as ImageOBB, scale, offsetX, offsetY);
+    updateOBBRectPosition(rect, coords as ImageOBB, scale, offsetX, offsetY)
   }
 }
 
@@ -95,55 +95,55 @@ export function updateBadgePosition(
   isBB: boolean,
   className: string = ''
 ): void {
-  let leftX: number, topY: number;
-  
+  let leftX: number, topY: number
+
   if (isBB) {
     // BB: left-top point
-    const [xmin, ymin] = coords as ImageBBox;
-    leftX = xmin;
-    topY = ymin;
+    const [xmin, ymin] = coords as ImageBBox
+    leftX = xmin
+    topY = ymin
   } else {
     // OBB: 4코너 중 화면상 가장 위쪽(topmost) 코너 찾기
-    const [cx, cy, w, h, angle] = coords as ImageOBB;
-    const rad = (angle * Math.PI) / 180;
-    const halfW = w / 2;
-    const halfH = h / 2;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const [cx, cy, w, h, angle] = coords as ImageOBB
+    const rad = (angle * Math.PI) / 180
+    const halfW = w / 2
+    const halfH = h / 2
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
 
     const corners = [
-      { x: cx + (-halfW) * cos - (-halfH) * sin, y: cy + (-halfW) * sin + (-halfH) * cos },
-      { x: cx + ( halfW) * cos - (-halfH) * sin, y: cy + ( halfW) * sin + (-halfH) * cos },
-      { x: cx + (-halfW) * cos - ( halfH) * sin, y: cy + (-halfW) * sin + ( halfH) * cos },
-      { x: cx + ( halfW) * cos - ( halfH) * sin, y: cy + ( halfW) * sin + ( halfH) * cos },
-    ];
-    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b));
-    leftX = topmost.x;
-    topY = topmost.y;
+      { x: cx + -halfW * cos - -halfH * sin, y: cy + -halfW * sin + -halfH * cos },
+      { x: cx + halfW * cos - -halfH * sin, y: cy + halfW * sin + -halfH * cos },
+      { x: cx + -halfW * cos - halfH * sin, y: cy + -halfW * sin + halfH * cos },
+      { x: cx + halfW * cos - halfH * sin, y: cy + halfW * sin + halfH * cos }
+    ]
+    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b))
+    leftX = topmost.x
+    topY = topmost.y
   }
-  
-  const bs = badgeScale(scale);
-  const screenX = leftX * scale + offsetX;
-  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs;
-  
+
+  const bs = badgeScale(scale)
+  const screenX = leftX * scale + offsetX
+  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs
+
   // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
-  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs;
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs;
-  
+  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs
+  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs
+
   badge.background.set({
     left: screenX,
     top: screenY,
     width: badgeWidth,
     height: BADGE_HEIGHT * bs,
     rx: 4 * bs,
-    ry: 4 * bs,
-  });
-  
+    ry: 4 * bs
+  })
+
   badge.text.set({
     left: screenX + BADGE_PADDING * bs,
     top: screenY + (BADGE_HEIGHT / 2) * bs,
-    fontSize: BADGE_FONT_SIZE * bs,
-  });
+    fontSize: BADGE_FONT_SIZE * bs
+  })
 }
 
 // ============================================
@@ -160,17 +160,12 @@ export function extractBBoxFromRect(
   offsetX: number,
   offsetY: number
 ): ImageBBox {
-  const left = (rect.left - offsetX) / scale;
-  const top = (rect.top - offsetY) / scale;
-  const width = rect.width * rect.scaleX / scale;
-  const height = rect.height * rect.scaleY / scale;
-  
-  return [
-    left,
-    top,
-    left + width,
-    top + height,
-  ];
+  const left = (rect.left - offsetX) / scale
+  const top = (rect.top - offsetY) / scale
+  const width = (rect.width * rect.scaleX) / scale
+  const height = (rect.height * rect.scaleY) / scale
+
+  return [left, top, left + width, top + height]
 }
 
 /**
@@ -183,11 +178,11 @@ export function extractOBBFromRect(
   offsetX: number,
   offsetY: number
 ): ImageOBB {
-  const cx = (rect.left - offsetX) / scale;
-  const cy = (rect.top - offsetY) / scale;
-  const width = rect.width * rect.scaleX / scale;
-  const height = rect.height * rect.scaleY / scale;
-  const angle = rect.angle;
-  
-  return [cx, cy, width, height, angle];
+  const cx = (rect.left - offsetX) / scale
+  const cy = (rect.top - offsetY) / scale
+  const width = (rect.width * rect.scaleX) / scale
+  const height = (rect.height * rect.scaleY) / scale
+  const angle = rect.angle
+
+  return [cx, cy, width, height, angle]
 }

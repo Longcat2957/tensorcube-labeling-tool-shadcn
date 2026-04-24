@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build without publishing to GitHub Release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm build:linux
+        env:
+          # Publish only on tag push; workflow_dispatch stays local
+          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: pnpm build:win
+        env:
+          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: pnpm build:mac
+        env:
+          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/latest*.yml
+          if-no-files-found: warn
+          retention-days: 14

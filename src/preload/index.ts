@@ -28,9 +28,19 @@ const workspace = {
     }
   ) => ipcRenderer.invoke('workspace:update', workspacePath, options),
   getInfo: (workspacePath: string) => ipcRenderer.invoke('workspace:getInfo', workspacePath),
-  getImageList: (workspacePath: string) => ipcRenderer.invoke('workspace:getImageList', workspacePath),
+  getImageList: (workspacePath: string) =>
+    ipcRenderer.invoke('workspace:getImageList', workspacePath),
   export: (workspacePath: string, options: Record<string, unknown>) =>
-    ipcRenderer.invoke('workspace:export', workspacePath, options)
+    ipcRenderer.invoke('workspace:export', workspacePath, options),
+  exportPreflight: (workspacePath: string, options: Record<string, unknown>) =>
+    ipcRenderer.invoke('workspace:exportPreflight', workspacePath, options),
+  getRecent: () => ipcRenderer.invoke('workspace:getRecent'),
+  removeRecent: (workspacePath: string) =>
+    ipcRenderer.invoke('workspace:removeRecent', workspacePath),
+  scanClassUsage: (workspacePath: string) =>
+    ipcRenderer.invoke('workspace:scanClassUsage', workspacePath),
+  reassignClass: (workspacePath: string, fromClassId: number, toClassId: number | null) =>
+    ipcRenderer.invoke('workspace:reassignClass', workspacePath, fromClassId, toClassId)
 }
 
 // Label APIs

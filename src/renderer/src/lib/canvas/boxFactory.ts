@@ -1,19 +1,16 @@
 /**
  * 박스 팩토리
  * Fabric.js Rect 객체 생성
- * 
+ *
  * 핵심 원칙:
  * - BB: originX='left', originY='top' (좌상단 기준)
  * - OBB: originX='center', originY='center' (중심 기준)
  * - 스트로크 보정 없이 정확한 좌표 사용
  */
 
-import { Rect, Text } from "fabric";
-import type { BBAnnotation, OBBAnnotation } from "../stores/workspace.svelte.js";
-import {
-  bboxToScreen,
-  obbToScreen,
-} from "./coordinates.js";
+import { Rect, Text } from 'fabric'
+import type { BBAnnotation, OBBAnnotation } from '../stores/workspace.svelte.js'
+import { bboxToScreen, obbToScreen } from './coordinates.js'
 import {
   getClassColor,
   hexToRgba,
@@ -23,8 +20,8 @@ import {
   type BadgeObjects,
   BADGE_HEIGHT,
   BADGE_PADDING,
-  BADGE_FONT_SIZE,
-} from "./styles/boxStyles.js";
+  BADGE_FONT_SIZE
+} from './styles/boxStyles.js'
 
 // ============================================
 // BB (Bounding Box) 생성
@@ -39,9 +36,9 @@ export function createBBRect(
   offsetX: number,
   offsetY: number
 ): BoxRect {
-  const color = getClassColor(annotation.class_id);
-  const screen = bboxToScreen(annotation.bbox, scale, offsetX, offsetY);
-  
+  const color = getClassColor(annotation.class_id)
+  const screen = bboxToScreen(annotation.bbox, scale, offsetX, offsetY)
+
   const rect = new Rect({
     left: screen.left,
     top: screen.top,
@@ -62,22 +59,22 @@ export function createBBRect(
     transparentCorners: false,
     hoverCursor: 'move',
     moveCursor: 'move',
-    lockRotation: true, // BB 모드에서는 회전 비활성화
-  });
-  
+    lockRotation: true // BB 모드에서는 회전 비활성화
+  })
+
   // 회전 컨트롤(mtr - middle-top-rotate) 숨김
-  rect.setControlVisible('mtr', false);
-  
+  rect.setControlVisible('mtr', false)
+
   // data 속성 직접 할당
-  (rect as unknown as BoxRect).data = {
+  ;(rect as unknown as BoxRect).data = {
     id: annotation.id,
     classId: annotation.class_id,
     color,
     type: 'label',
-    shape: 'bb',
-  };
-  
-  return rect as unknown as BoxRect;
+    shape: 'bb'
+  }
+
+  return rect as unknown as BoxRect
 }
 
 // ============================================
@@ -93,9 +90,9 @@ export function createOBBRect(
   offsetX: number,
   offsetY: number
 ): BoxRect {
-  const color = getClassColor(annotation.class_id);
-  const screen = obbToScreen(annotation.obb, scale, offsetX, offsetY);
-  
+  const color = getClassColor(annotation.class_id)
+  const screen = obbToScreen(annotation.obb, scale, offsetX, offsetY)
+
   const rect = new Rect({
     left: screen.left,
     top: screen.top,
@@ -117,22 +114,22 @@ export function createOBBRect(
     transparentCorners: false,
     hoverCursor: 'move',
     moveCursor: 'move',
-    lockRotation: false, // OBB 모드에서는 회전 허용
-  });
-  
+    lockRotation: false // OBB 모드에서는 회전 허용
+  })
+
   // 회전 컨트롤(mtr - middle-top-rotate) 표시
-  rect.setControlVisible('mtr', true);
-  
+  rect.setControlVisible('mtr', true)
+
   // data 속성 직접 할당
-  (rect as unknown as BoxRect).data = {
+  ;(rect as unknown as BoxRect).data = {
     id: annotation.id,
     classId: annotation.class_id,
     color,
     type: 'label',
-    shape: 'obb',
-  };
-  
-  return rect as unknown as BoxRect;
+    shape: 'obb'
+  }
+
+  return rect as unknown as BoxRect
 }
 
 // ============================================
@@ -150,45 +147,45 @@ export function createLabelBadge(
   offsetX: number,
   offsetY: number
 ): BadgeObjects {
-  const color = getClassColor(annotation.class_id);
-  
+  const color = getClassColor(annotation.class_id)
+
   // 좌표 계산 - bbox의 left-top point 사용
-  let leftX: number, topY: number;
-  
+  let leftX: number, topY: number
+
   if ('bbox' in annotation) {
     // BB: left-top point
-    leftX = annotation.bbox[0]; // xmin
-    topY = annotation.bbox[1];  // ymin
+    leftX = annotation.bbox[0] // xmin
+    topY = annotation.bbox[1] // ymin
   } else {
     // OBB: 4코너 중 화면상 가장 위쪽(topmost) 코너 찾기
-    const [cx, cy, w, h, angle] = annotation.obb;
-    const rad = (angle * Math.PI) / 180;
-    const halfW = w / 2;
-    const halfH = h / 2;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
+    const [cx, cy, w, h, angle] = annotation.obb
+    const rad = (angle * Math.PI) / 180
+    const halfW = w / 2
+    const halfH = h / 2
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
 
     const corners = [
-      { x: cx + (-halfW) * cos - (-halfH) * sin, y: cy + (-halfW) * sin + (-halfH) * cos },
-      { x: cx + ( halfW) * cos - (-halfH) * sin, y: cy + ( halfW) * sin + (-halfH) * cos },
-      { x: cx + (-halfW) * cos - ( halfH) * sin, y: cy + (-halfW) * sin + ( halfH) * cos },
-      { x: cx + ( halfW) * cos - ( halfH) * sin, y: cy + ( halfW) * sin + ( halfH) * cos },
-    ];
-    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b));
-    leftX = topmost.x;
-    topY = topmost.y;
+      { x: cx + -halfW * cos - -halfH * sin, y: cy + -halfW * sin + -halfH * cos },
+      { x: cx + halfW * cos - -halfH * sin, y: cy + halfW * sin + -halfH * cos },
+      { x: cx + -halfW * cos - halfH * sin, y: cy + -halfW * sin + halfH * cos },
+      { x: cx + halfW * cos - halfH * sin, y: cy + halfW * sin + halfH * cos }
+    ]
+    const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b))
+    leftX = topmost.x
+    topY = topmost.y
   }
-  
-  const bs = badgeScale(scale);
-  
+
+  const bs = badgeScale(scale)
+
   // 스크린 좌표로 변환 (위치는 여전히 scale 기준)
-  const screenX = leftX * scale + offsetX;
-  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs;
-  
+  const screenX = leftX * scale + offsetX
+  const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs
+
   // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
-  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs;
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs;
-  
+  const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs
+  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs
+
   // 배경
   const background = new Rect({
     left: screenX,
@@ -201,9 +198,9 @@ export function createLabelBadge(
     rx: 4 * bs,
     ry: 4 * bs,
     selectable: false,
-    evented: false,
-  });
-  
+    evented: false
+  })
+
   // 텍스트
   const text = new Text(className, {
     left: screenX + BADGE_PADDING * bs,
@@ -215,10 +212,10 @@ export function createLabelBadge(
     selectable: false,
     evented: false,
     fontFamily: 'Arial, sans-serif',
-    fontWeight: 'bold',
-  });
-  
-  return { background, text };
+    fontWeight: 'bold'
+  })
+
+  return { background, text }
 }
 
 // ============================================
@@ -235,8 +232,8 @@ export function createLabelBox(
   offsetY: number
 ): BoxRect {
   if ('bbox' in annotation) {
-    return createBBRect(annotation, scale, offsetX, offsetY);
+    return createBBRect(annotation, scale, offsetX, offsetY)
   } else {
-    return createOBBRect(annotation, scale, offsetX, offsetY);
+    return createOBBRect(annotation, scale, offsetX, offsetY)
   }
 }

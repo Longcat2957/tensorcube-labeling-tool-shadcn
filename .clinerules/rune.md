@@ -24,7 +24,7 @@ You **MUST** use the Svelte 5 API unless explicitly tasked to write Svelte 4 syn
 
   ```svelte
   <script>
-  	let count = $state(0);
+    let count = $state(0)
   </script>
 
   <button onclick={() => count++}>Clicked: {count}</button>
@@ -34,19 +34,19 @@ You **MUST** use the Svelte 5 API unless explicitly tasked to write Svelte 4 syn
   _In Svelte 4, you created state with let, e.g. `let count = 0;`, now use the $state rune, e.g. `let count = $state(0);`._
 - Arrays and objects become deeply reactive proxies. For example:
   ```js
-  let todos = $state([{ done: false, text: 'add more todos' }]);
-  todos[0].done = !todos[0].done;
+  let todos = $state([{ done: false, text: 'add more todos' }])
+  todos[0].done = !todos[0].done
   ```
 - Do **NOT** destructure reactive proxies (e.g., `let { done } = todos[0];`), as this breaks reactivity; instead, access properties directly.
 - Use `$state` in class fields for reactive properties. For example:
   ```js
   class Todo {
-  	done = $state(false);
-  	text = $state('');
-  	reset = () => {
-  		this.text = '';
-  		this.done = false;
-  	};
+    done = $state(false)
+    text = $state('')
+    reset = () => {
+      this.text = ''
+      this.done = false
+    }
   }
   ```
 
@@ -55,10 +55,10 @@ You **MUST** use the Svelte 5 API unless explicitly tasked to write Svelte 4 syn
 - `$state.raw` creates shallow state where mutations are not tracked. For example:
 
 ```js
-let person = $state.raw({ name: 'Heraclitus', age: 49 });
+let person = $state.raw({ name: 'Heraclitus', age: 49 })
 // Instead of mutating:
 // person.age += 1;  // NO effect
-person = { name: 'Heraclitus', age: 50 }; // Correct way to update
+person = { name: 'Heraclitus', age: 50 } // Correct way to update
 ```
 
 - Do **NOT** attempt to mutate properties on raw state; instead, reassign the entire object to trigger updates.
@@ -69,10 +69,10 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let counter = $state({ count: 0 });
-	function logSnapshot() {
-		console.log($state.snapshot(counter));
-	}
+  let counter = $state({ count: 0 })
+  function logSnapshot() {
+    console.log($state.snapshot(counter))
+  }
 </script>
 ```
 
@@ -83,15 +83,15 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 - Pass-by-Value Semantics: Use getter functions to ensure functions access the current value of reactive state. For example:
   ```js
   function add(getA, getB) {
-  	return () => getA() + getB();
+    return () => getA() + getB()
   }
   let a = 1,
-  	b = 2;
+    b = 2
   let total = add(
-  	() => a,
-  	() => b
-  );
-  console.log(total());
+    () => a,
+    () => b
+  )
+  console.log(total())
   ```
 - Do **NOT** assume that passing a reactive state variable directly maintains live updates; instead, pass getter functions.  
   _In Svelte 4, you often used stores with subscribe methods; now prefer getter functions with `$state` / `$derived` instead._
@@ -102,8 +102,8 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let count = $state(0);
-	let doubled = $derived(count * 2);
+  let count = $state(0)
+  let doubled = $derived(count * 2)
 </script>
 
 <button onclick={() => count++}>{doubled}</button>
@@ -118,12 +118,12 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let numbers = $state([1, 2, 3]);
-	let total = $derived.by(() => {
-		let sum = 0;
-		for (const n of numbers) sum += n;
-		return sum;
-	});
+  let numbers = $state([1, 2, 3])
+  let total = $derived.by(() => {
+    let sum = 0
+    for (const n of numbers) sum += n
+    return sum
+  })
 </script>
 ```
 
@@ -135,16 +135,16 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let post = $props().post;
-	let likes = $derived(post.likes);
-	async function onclick() {
-		likes += 1;
-		try {
-			await post.like();
-		} catch {
-			likes -= 1;
-		}
-	}
+  let post = $props().post
+  let likes = $derived(post.likes)
+  async function onclick() {
+    likes += 1
+    try {
+      await post.like()
+    } catch {
+      likes -= 1
+    }
+  }
 </script>
 ```
 
@@ -157,10 +157,10 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let size = $state(50);
-	$effect(() => {
-		console.log('Size changed:', size);
-	});
+  let size = $state(50)
+  $effect(() => {
+    console.log('Size changed:', size)
+  })
 </script>
 ```
 
@@ -173,13 +173,13 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let count = $state(0);
-	$effect(() => {
-		const interval = setInterval(() => {
-			count += 1;
-		}, 1000);
-		return () => clearInterval(interval);
-	});
+  let count = $state(0)
+  $effect(() => {
+    const interval = setInterval(() => {
+      count += 1
+    }, 1000)
+    return () => clearInterval(interval)
+  })
 </script>
 ```
 
@@ -191,10 +191,10 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let div = $state();
-	$effect.pre(() => {
-		if (div) console.log('Running before DOM update');
-	});
+  let div = $state()
+  $effect.pre(() => {
+    if (div) console.log('Running before DOM update')
+  })
 </script>
 ```
 
@@ -206,9 +206,9 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	$effect(() => {
-		console.log('Inside effect, tracking:', $effect.tracking());
-	});
+  $effect(() => {
+    console.log('Inside effect, tracking:', $effect.tracking())
+  })
 </script>
 ```
 
@@ -221,13 +221,13 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let count = $state(0);
-	const cleanup = $effect.root(() => {
-		$effect(() => {
-			console.log('Count is:', count);
-		});
-		return () => console.log('Root effect cleaned up');
-	});
+  let count = $state(0)
+  const cleanup = $effect.root(() => {
+    $effect(() => {
+      console.log('Count is:', count)
+    })
+    return () => console.log('Root effect cleaned up')
+  })
 </script>
 ```
 
@@ -240,7 +240,7 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 
 ```svelte
 <script>
-	let { adjective } = $props();
+  let { adjective } = $props()
 </script>
 
 <p>This component is {adjective}</p>
@@ -251,19 +251,19 @@ person = { name: 'Heraclitus', age: 50 }; // Correct way to update
 - Declare fallback values via destructuring. For example:
 
 ```js
-let { adjective = 'happy' } = $props();
+let { adjective = 'happy' } = $props()
 ```
 
 - Rename props to avoid reserved keywords. For example:
 
 ```js
-let { super: trouper } = $props();
+let { super: trouper } = $props()
 ```
 
 - Use rest syntax to collect all remaining props. For example:
 
 ```js
-let { a, b, ...others } = $props();
+let { a, b, ...others } = $props()
 ```
 
 #### $props.id()
@@ -272,7 +272,7 @@ let { a, b, ...others } = $props();
 
 ```svelte
 <script>
-	const uid = $props.id();
+  const uid = $props.id()
 </script>
 
 <label for="{uid}-firstname">First Name:</label>
@@ -287,7 +287,7 @@ let { a, b, ...others } = $props();
 
 ```svelte
 <script>
-	let { value = $bindable() } = $props();
+  let { value = $bindable() } = $props()
 </script>
 
 <input bind:value />
@@ -302,9 +302,9 @@ let { a, b, ...others } = $props();
 
 ```svelte
 <script>
-	function dispatch(type) {
-		$host().dispatchEvent(new CustomEvent(type));
-	}
+  function dispatch(type) {
+    $host().dispatchEvent(new CustomEvent(type))
+  }
 </script>
 
 <button onclick={() => dispatch('increment')}>Increment</button>
@@ -319,10 +319,10 @@ let { a, b, ...others } = $props();
   _Example:_
   ```svelte
   {#snippet figure(image)}
-  	<figure>
-  		<img src={image.src} alt={image.caption} width={image.width} height={image.height} />
-  		<figcaption>{image.caption}</figcaption>
-  	</figure>
+    <figure>
+      <img src={image.src} alt={image.caption} width={image.width} height={image.height} />
+      <figcaption>{image.caption}</figcaption>
+    </figure>
   {/snippet}
   ```
 - **Parameterization:**  
@@ -330,7 +330,7 @@ let { a, b, ...others } = $props();
   _Example with parameters:_
   ```svelte
   {#snippet name(param1, param2)}
-  	<!-- snippet markup here -->
+    <!-- snippet markup here -->
   {/snippet}
   ```
 
@@ -342,11 +342,11 @@ let { a, b, ...others } = $props();
 
   ```svelte
   <script>
-  	let { message = "it's great to see you!" } = $props();
+    let { message = "it's great to see you!" } = $props()
   </script>
 
   {#snippet hello(name)}
-  	<p>hello {name}! {message}!</p>
+    <p>hello {name}! {message}!</p>
   {/snippet}
   {@render hello('alice')}
   ```
@@ -363,24 +363,24 @@ let { a, b, ...others } = $props();
 
   ```svelte
   <script>
-  	import Table from './Table.svelte';
-  	const fruits = [
-  		{ name: 'apples', qty: 5, price: 2 },
-  		{ name: 'bananas', qty: 10, price: 1 }
-  	];
+    import Table from './Table.svelte'
+    const fruits = [
+      { name: 'apples', qty: 5, price: 2 },
+      { name: 'bananas', qty: 10, price: 1 }
+    ]
   </script>
 
   {#snippet header()}
-  	<th>fruit</th>
-  	<th>qty</th>
-  	<th>price</th>
-  	<th>total</th>
+    <th>fruit</th>
+    <th>qty</th>
+    <th>price</th>
+    <th>total</th>
   {/snippet}
   {#snippet row(d)}
-  	<td>{d.name}</td>
-  	<td>{d.qty}</td>
-  	<td>{d.price}</td>
-  	<td>{d.qty * d.price}</td>
+    <td>{d.name}</td>
+    <td>{d.qty}</td>
+    <td>{d.price}</td>
+    <td>{d.qty * d.price}</td>
   {/snippet}
   <Table data={fruits} {header} {row} />
   ```
@@ -395,7 +395,7 @@ let { a, b, ...others } = $props();
   ```svelte
   <!-- Button.svelte -->
   <script>
-  	let { children } = $props();
+    let { children } = $props()
   </script>
 
   <!-- App.svelte -->
@@ -410,13 +410,13 @@ let { a, b, ...others } = $props();
 
 ```svelte
 <script lang="ts">
-	import type { Snippet } from 'svelte';
-	interface Props {
-		data: any[];
-		children: Snippet;
-		row: Snippet<[any]>;
-	}
-	let { data, children, row }: Props = $props();
+  import type { Snippet } from 'svelte'
+  interface Props {
+    data: any[]
+    children: Snippet
+    row: Snippet<[any]>
+  }
+  let { data, children, row }: Props = $props()
 </script>
 ```
 
@@ -426,7 +426,7 @@ let { a, b, ...others } = $props();
   _Example:_
   ```svelte
   {#snippet sum(a, b)}
-  	<p>{a} + {b} = {a + b}</p>
+    <p>{a} + {b} = {a + b}</p>
   {/snippet}
   {@render sum(1, 2)}
   ```
@@ -440,7 +440,7 @@ let { a, b, ...others } = $props();
 
   ```svelte
   <svelte:boundary onerror={(error, reset) => console.error(error)}>
-  	<FlakyComponent />
+    <FlakyComponent />
   </svelte:boundary>
   ```
 
@@ -450,10 +450,10 @@ let { a, b, ...others } = $props();
 
   ```svelte
   <svelte:boundary>
-  	<FlakyComponent />
-  	{#snippet failed(error, reset)}
-  		<button onclick={reset}>Oops! Try again</button>
-  	{/snippet}
+    <FlakyComponent />
+    {#snippet failed(error, reset)}
+      <button onclick={reset}>Oops! Try again</button>
+    {/snippet}
   </svelte:boundary>
   ```
 
@@ -464,7 +464,7 @@ let { a, b, ...others } = $props();
 
 ```svelte
 <script>
-	let { cool } = $props();
+  let { cool } = $props()
 </script>
 
 <div class={{ cool, lame: !cool }}>Content</div>
@@ -484,13 +484,13 @@ A SvelteKit project needs a `package.json` with the following contents at minimu
 
 ```json
 {
-	"devDependencies": {
-		"@sveltejs/adapter-auto": "^6.0.0",
-		"@sveltejs/kit": "^2.0.0",
-		"@sveltejs/vite-plugin-svelte": "^5.0.0",
-		"svelte": "^5.0.0",
-		"vite": "^6.0.0"
-	}
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^6.0.0",
+    "@sveltejs/kit": "^2.0.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "svelte": "^5.0.0",
+    "vite": "^6.0.0"
+  }
 }
 ```
 
@@ -499,24 +499,24 @@ Do NOT put any of the `devDependencies` listed above into `dependencies`, keep t
 It also needs a `vite.config.js` with the following at minimum:
 
 ```js
-import { defineConfig } from 'vite';
-import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite'
+import { sveltekit } from '@sveltejs/kit/vite'
 
 export default defineConfig({
-	plugins: [sveltekit()]
-});
+  plugins: [sveltekit()]
+})
 ```
 
 It also needs a `svelte.config.js` with the following at minimum:
 
 ```js
-import adapter from '@sveltejs/adapter-auto';
+import adapter from '@sveltejs/adapter-auto'
 
 export default {
-	kit: {
-		adapter: adapter()
-	}
-};
+  kit: {
+    adapter: adapter()
+  }
+}
 ```
 
 ## Project structure
@@ -544,8 +544,8 @@ export default {
 
 ```svelte
 <script lang="ts">
-	import type { PageProps } from './$types';
-	let { data }: PageProps = $props();
+  import type { PageProps } from './$types'
+  let { data }: PageProps = $props()
 </script>
 
 <h1>{data.title}</h1>
@@ -583,8 +583,8 @@ export const load: PageLoad = () => {
 
 ```svelte
 <script>
-	import { LayoutProps } from './$types';
-	let { children, data } = $props();
+  import { LayoutProps } from './$types'
+  let { children, data } = $props()
 </script>
 
 <p>Some Content that is shared for all pages below this layout</p>
@@ -649,16 +649,16 @@ Example:
 ```js
 // file: src/routes/foo/+page.js
 export async function load({ fetch }) {
-	const result = await fetch('/data/from/somewhere').then((r) => r.json());
-	return { result }; // return property "result"
+  const result = await fetch('/data/from/somewhere').then((r) => r.json())
+  return { result } // return property "result"
 }
 ```
 
 ```svelte
 <!-- file: src/routes/foo/+page.svelte -->
 <script>
-	// "data" prop contains property "result"
-	let { data } = $props();
+  // "data" prop contains property "result"
+  let { data } = $props()
 </script>
 
 {data.result}
@@ -696,9 +696,9 @@ Use the provided `fetch` function for enhanced features:
 ```js
 // src/routes/items/[id]/+page.js
 export async function load({ fetch, params }) {
-	const res = await fetch(`/api/items/${params.id}`);
-	const item = await res.json();
-	return { item };
+  const res = await fetch(`/api/items/${params.id}`)
+  const item = await res.json()
+  return { item }
 }
 ```
 
@@ -708,14 +708,14 @@ Set response headers using `setHeaders`:
 
 ```js
 export async function load({ fetch, setHeaders }) {
-	const response = await fetch(url);
+  const response = await fetch(url)
 
-	setHeaders({
-		age: response.headers.get('age'),
-		'cache-control': response.headers.get('cache-control')
-	});
+  setHeaders({
+    age: response.headers.get('age'),
+    'cache-control': response.headers.get('cache-control')
+  })
 
-	return response.json();
+  return response.json()
 }
 ```
 
@@ -723,10 +723,10 @@ Access cookies in server load functions using `cookies`:
 
 ```js
 export async function load({ cookies }) {
-	const sessionid = cookies.get('sessionid');
-	return {
-		user: await db.getUser(sessionid)
-	};
+  const sessionid = cookies.get('sessionid')
+  return {
+    user: await db.getUser(sessionid)
+  }
 }
 ```
 
@@ -738,8 +738,8 @@ Access data from parent load functions:
 
 ```js
 export async function load({ parent }) {
-	const { a } = await parent();
-	return { b: a + 1 };
+  const { a } = await parent()
+  return { b: a + 1 }
 }
 ```
 
@@ -748,24 +748,24 @@ export async function load({ parent }) {
 Redirect users using `redirect`:
 
 ```js
-import { redirect } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit'
 
 export function load({ locals }) {
-	if (!locals.user) {
-		redirect(307, '/login');
-	}
+  if (!locals.user) {
+    redirect(307, '/login')
+  }
 }
 ```
 
 Throw expected errors using `error`:
 
 ```js
-import { error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit'
 
 export function load({ locals }) {
-	if (!locals.user) {
-		error(401, 'not logged in');
-	}
+  if (!locals.user) {
+    error(401, 'not logged in')
+  }
 }
 ```
 
@@ -777,10 +777,10 @@ Server load functions can stream promises as they resolve:
 
 ```js
 export async function load({ params }) {
-	return {
-		comments: loadComments(params.slug),
-		post: await loadPost(params.slug)
-	};
+  return {
+    comments: loadComments(params.slug),
+    post: await loadPost(params.slug)
+  }
 }
 ```
 
@@ -789,13 +789,13 @@ export async function load({ params }) {
 <div>{@html data.post.content}</div>
 
 {#await data.comments}
-	Loading comments...
+  Loading comments...
 {:then comments}
-	{#each comments as comment}
-		<p>{comment.content}</p>
-	{/each}
+  {#each comments as comment}
+    <p>{comment.content}</p>
+  {/each}
 {:catch error}
-	<p>error loading comments: {error.message}</p>
+  <p>error loading comments: {error.message}</p>
 {/await}
 ```
 
@@ -812,14 +812,14 @@ Manually invalidate load functions:
 ```js
 // In load function
 export async function load({ fetch, depends }) {
-	depends('app:random');
-	// ...
+  depends('app:random')
+  // ...
 }
 
 // In component
-import { invalidate } from '$app/navigation';
+import { invalidate } from '$app/navigation'
 function rerunLoadFunction() {
-	invalidate('app:random');
+  invalidate('app:random')
 }
 ```
 
@@ -829,9 +829,9 @@ Exclude from dependency tracking with `untrack`:
 
 ```js
 export async function load({ untrack, url }) {
-	if (untrack(() => url.pathname === '/')) {
-		return { message: 'Welcome!' };
-	}
+  if (untrack(() => url.pathname === '/')) {
+    return { message: 'Welcome!' }
+  }
 }
 ```
 
@@ -870,15 +870,15 @@ Use it with a simple form:
 ```svelte
 <!-- file: src/routes/login/+page.svelte -->
 <form method="POST">
-	<label>
-		Email
-		<input name="email" type="email" />
-	</label>
-	<label>
-		Password
-		<input name="password" type="password" />
-	</label>
-	<button>Log in</button>
+  <label>
+    Email
+    <input name="email" type="email" />
+  </label>
+  <label>
+    Password
+    <input name="password" type="password" />
+  </label>
+  <button>Log in</button>
 </form>
 ```
 
@@ -907,13 +907,13 @@ Use it with a simple form:
 
 ```svelte
 <script>
-	import type { PageProps } from './$types';
-	import { enhance } from '$app/forms';
-	let { form } = $props();
+  import type { PageProps } from './$types'
+  import { enhance } from '$app/forms'
+  let { form } = $props()
 </script>
 
 <form method="POST" use:enhance>
-	<!-- form content -->
+  <!-- form content -->
 </form>
 ```
 
@@ -1033,87 +1033,87 @@ The following are HTML attributes you can put on any HTML element.
 - **error**: throw an HTTP error and halt request processing
 
   ```js
-  import { error } from '@sveltejs/kit';
+  import { error } from '@sveltejs/kit'
   export function load() {
-  	error(404, 'Not found');
+    error(404, 'Not found')
   }
   ```
 
 - **fail**: return a form action failure without throwing
 
   ```js
-  import { fail } from '@sveltejs/kit';
+  import { fail } from '@sveltejs/kit'
   export const actions = {
-  	default: async ({ request }) => {
-  		const data = await request.formData();
-  		if (!data.get('name')) return fail(400, { missing: true });
-  	}
-  };
+    default: async ({ request }) => {
+      const data = await request.formData()
+      if (!data.get('name')) return fail(400, { missing: true })
+    }
+  }
   ```
 
 - **isActionFailure**: type‑guard for failures from `fail`
 
   ```js
-  import { isActionFailure } from '@sveltejs/kit';
+  import { isActionFailure } from '@sveltejs/kit'
   if (isActionFailure(result)) {
-  	/* handle invalid form */
+    /* handle invalid form */
   }
   ```
 
 - **isHttpError**: type‑guard for errors from `error`
 
   ```js
-  import { isHttpError } from '@sveltejs/kit';
+  import { isHttpError } from '@sveltejs/kit'
   try {
-  	/* … */
+    /* … */
   } catch (e) {
-  	if (isHttpError(e, 404)) console.log('Not found');
+    if (isHttpError(e, 404)) console.log('Not found')
   }
   ```
 
 - **isRedirect**: type‑guard for redirects from `redirect`
 
   ```js
-  import { redirect, isRedirect } from '@sveltejs/kit';
+  import { redirect, isRedirect } from '@sveltejs/kit'
   try {
-  	redirect(302, '/login');
+    redirect(302, '/login')
   } catch (e) {
-  	if (isRedirect(e)) console.log('Redirecting');
+    if (isRedirect(e)) console.log('Redirecting')
   }
   ```
 
 - **json**: build a JSON `Response`
 
   ```js
-  import { json } from '@sveltejs/kit';
+  import { json } from '@sveltejs/kit'
   export function GET() {
-  	return json({ hello: 'world' });
+    return json({ hello: 'world' })
   }
   ```
 
 - **normalizeUrl** _(v2.18+)_: strip internal suffixes/trailing slashes
 
   ```js
-  import { normalizeUrl } from '@sveltejs/kit';
-  const { url, denormalize } = normalizeUrl('/foo/__data.json');
-  url.pathname; // /foo
+  import { normalizeUrl } from '@sveltejs/kit'
+  const { url, denormalize } = normalizeUrl('/foo/__data.json')
+  url.pathname // /foo
   ```
 
 - **redirect**: throw a redirect response
 
   ```js
-  import { redirect } from '@sveltejs/kit';
+  import { redirect } from '@sveltejs/kit'
   export function load() {
-  	redirect(303, '/dashboard');
+    redirect(303, '/dashboard')
   }
   ```
 
 - **text**: build a plain‑text `Response`
 
   ```js
-  import { text } from '@sveltejs/kit';
+  import { text } from '@sveltejs/kit'
   export function GET() {
-  	return text('Hello, text!');
+    return text('Hello, text!')
   }
   ```
 
@@ -1122,8 +1122,8 @@ The following are HTML attributes you can put on any HTML element.
 - **sequence**: compose multiple `handle` hooks into one, merging their options
 
   ```js
-  import { sequence } from '@sveltejs/kit/hooks';
-  export const handle = sequence(handleOne, handleTwo);
+  import { sequence } from '@sveltejs/kit/hooks'
+  export const handle = sequence(handleOne, handleTwo)
   ```
 
 ### Imports from `$app/forms`
@@ -1131,16 +1131,16 @@ The following are HTML attributes you can put on any HTML element.
 - **applyAction**: apply an `ActionResult` to update `page.form` and `page.status`
 
   ```js
-  import { applyAction } from '$app/forms';
+  import { applyAction } from '$app/forms'
   // inside enhance callback:
-  await applyAction(result);
+  await applyAction(result)
   ```
 
 - **deserialize**: parse a serialized form action response back into `ActionResult`
 
   ```js
-  import { deserialize } from '$app/forms';
-  const result = deserialize(await response.text());
+  import { deserialize } from '$app/forms'
+  const result = deserialize(await response.text())
   ```
 
 - **enhance**: progressively enhance a `<form>` for AJAX submissions
@@ -1157,34 +1157,34 @@ The following are HTML attributes you can put on any HTML element.
 - **afterNavigate**: run code after every client‑side navigation. Needs to be called at component initialization
 
   ```js
-  import { afterNavigate } from '$app/navigation';
-  afterNavigate(({ type, to }) => console.log('navigated via', type));
+  import { afterNavigate } from '$app/navigation'
+  afterNavigate(({ type, to }) => console.log('navigated via', type))
   ```
 
 - **beforeNavigate**: intercept and optionally cancel upcoming navigations. Needs to be called at component initialization
 
   ```js
-  import { beforeNavigate } from '$app/navigation';
+  import { beforeNavigate } from '$app/navigation'
   beforeNavigate(({ cancel }) => {
-  	if (!confirm('Leave?')) cancel();
-  });
+    if (!confirm('Leave?')) cancel()
+  })
   ```
 
 - **disableScrollHandling**: disable automatic scroll resetting after navigation
 
   ```js
-  import { disableScrollHandling } from '$app/navigation';
-  disableScrollHandling();
+  import { disableScrollHandling } from '$app/navigation'
+  disableScrollHandling()
   ```
 
 - **goto**: programmatically navigate within the app
 
   ```svelte
   <script>
-  	import { goto } from '$app/navigation';
-  	function navigate() {
-  		goto('/dashboard', { replaceState: true });
-  	}
+    import { goto } from '$app/navigation'
+    function navigate() {
+      goto('/dashboard', { replaceState: true })
+    }
   </script>
 
   <button onclick={navigate}>navigate</button>
@@ -1193,50 +1193,50 @@ The following are HTML attributes you can put on any HTML element.
 - **invalidate**: re‑run `load` functions that depend on a given URL or custom key
 
   ```js
-  import { invalidate } from '$app/navigation';
-  await invalidate('/api/posts');
+  import { invalidate } from '$app/navigation'
+  await invalidate('/api/posts')
   ```
 
 - **invalidateAll**: re‑run every `load` for the current page
 
   ```js
-  import { invalidateAll } from '$app/navigation';
-  await invalidateAll();
+  import { invalidateAll } from '$app/navigation'
+  await invalidateAll()
   ```
 
 - **onNavigate**: hook invoked immediately before client‑side navigations. Needs to be called at component initialization
 
   ```js
-  import { onNavigate } from '$app/navigation';
-  onNavigate(({ to }) => console.log('about to go to', to.url));
+  import { onNavigate } from '$app/navigation'
+  onNavigate(({ to }) => console.log('about to go to', to.url))
   ```
 
 - **preloadCode**: import route modules ahead of navigation (no data fetch)
 
   ```js
-  import { preloadCode } from '$app/navigation';
-  await preloadCode('/about');
+  import { preloadCode } from '$app/navigation'
+  await preloadCode('/about')
   ```
 
 - **preloadData**: load both code and data for a route ahead of navigation
 
   ```js
-  import { preloadData } from '$app/navigation';
-  const result = await preloadData('/posts/1');
+  import { preloadData } from '$app/navigation'
+  const result = await preloadData('/posts/1')
   ```
 
 - **pushState**: create a shallow‑routing history entry with custom state
 
   ```js
-  import { pushState } from '$app/navigation';
-  pushState('', { modalOpen: true });
+  import { pushState } from '$app/navigation'
+  pushState('', { modalOpen: true })
   ```
 
 - **replaceState**: replace the current history entry with new custom state
 
   ```js
-  import { replaceState } from '$app/navigation';
-  replaceState('', { modalOpen: false });
+  import { replaceState } from '$app/navigation'
+  replaceState('', { modalOpen: false })
   ```
 
 ### Imports from `$app/paths`
@@ -1244,8 +1244,8 @@ The following are HTML attributes you can put on any HTML element.
 - **assets**: the absolute URL prefix for static assets (`config.kit.paths.assets`)
 
   ```js
-  import { assets } from '$app/paths';
-  console.log(`<img src="${assets}/logo.png">`);
+  import { assets } from '$app/paths'
+  console.log(`<img src="${assets}/logo.png">`)
   ```
 
 - **base**: the base path for your app (`config.kit.paths.base`)
@@ -1257,11 +1257,11 @@ The following are HTML attributes you can put on any HTML element.
 - **resolveRoute**: interpolate a route ID with parameters to form a pathname
 
   ```js
-  import { resolveRoute } from '$app/paths';
+  import { resolveRoute } from '$app/paths'
   resolveRoute('/blog/[slug]/[...rest]', {
-  	slug: 'hello',
-  	rest: '2024/updates'
-  });
+    slug: 'hello',
+    rest: '2024/updates'
+  })
   // → "/blog/hello/2024/updates"
   ```
 
@@ -1270,28 +1270,28 @@ The following are HTML attributes you can put on any HTML element.
 - **getRequestEvent** _(v2.20+)_: retrieve the current server `RequestEvent`
 
   ```js
-  import { getRequestEvent } from '$app/server';
+  import { getRequestEvent } from '$app/server'
   export function load() {
-  	const event = getRequestEvent();
-  	console.log(event.url);
+    const event = getRequestEvent()
+    console.log(event.url)
   }
   ```
 
 - **read** _(v2.4+)_: read a static asset imported by Vite as a `Response`
 
   ```js
-  import { read } from '$app/server';
-  import fileUrl from './data.txt';
-  const res = read(fileUrl);
-  console.log(await res.text());
+  import { read } from '$app/server'
+  import fileUrl from './data.txt'
+  const res = read(fileUrl)
+  console.log(await res.text())
   ```
 
 - **navigating**: a read‑only object describing any in‑flight navigation (or `null`)
 
   ```svelte
   <script>
-  	import { navigating } from '$app/state';
-  	console.log(navigating.from, navigating.to);
+    import { navigating } from '$app/state'
+    console.log(navigating.from, navigating.to)
   </script>
   ```
 
@@ -1301,8 +1301,8 @@ The following are HTML attributes you can put on any HTML element.
 
   ```svelte
   <script>
-  	import { page } from '$app/state';
-  	const path = $derived(page.url.pathname);
+    import { page } from '$app/state'
+    const path = $derived(page.url.pathname)
   </script>
 
   {path}
@@ -1312,12 +1312,12 @@ The following are HTML attributes you can put on any HTML element.
 
   ```svelte
   <script>
-  	import { updated } from '$app/state';
-  	$effect(() => {
-  		if (updated.current) {
-  			alert('A new version is available. Refresh?');
-  		}
-  	});
+    import { updated } from '$app/state'
+    $effect(() => {
+      if (updated.current) {
+        alert('A new version is available. Refresh?')
+      }
+    })
   </script>
   ```
 
@@ -1326,8 +1326,8 @@ The following are HTML attributes you can put on any HTML element.
 - **env (dynamic/private)**: runtime private env vars (`process.env…`), not exposed to client
 
   ```js
-  import { env } from '$env/dynamic/private';
-  console.log(env.SECRET_API_KEY);
+  import { env } from '$env/dynamic/private'
+  console.log(env.SECRET_API_KEY)
   ```
 
 ### Imports from `$env/dynamic/public`
@@ -1335,8 +1335,8 @@ The following are HTML attributes you can put on any HTML element.
 - **env (dynamic/public)**: runtime public env vars (`PUBLIC_…`), safe for client use
 
   ```js
-  import { env } from '$env/dynamic/public';
-  console.log(env.PUBLIC_BASE_URL);
+  import { env } from '$env/dynamic/public'
+  console.log(env.PUBLIC_BASE_URL)
   ```
 
 ### Imports from `$env/static/private`
@@ -1344,8 +1344,8 @@ The following are HTML attributes you can put on any HTML element.
 - **$env/static/private**: compile‑time private env vars, dead‑code eliminated
 
   ```js
-  import { DATABASE_URL } from '$env/static/private';
-  console.log(DATABASE_URL);
+  import { DATABASE_URL } from '$env/static/private'
+  console.log(DATABASE_URL)
   ```
 
 ### Imports from `$env/static/public`
@@ -1353,8 +1353,8 @@ The following are HTML attributes you can put on any HTML element.
 - **$env/static/public**: compile‑time public env vars (`PUBLIC_…`), safe on client
 
   ```js
-  import { PUBLIC_WS_ENDPOINT } from '$env/static/public';
-  console.log(PUBLIC_WS_ENDPOINT);
+  import { PUBLIC_WS_ENDPOINT } from '$env/static/public'
+  console.log(PUBLIC_WS_ENDPOINT)
   ```
 
 ### `$lib` alias
@@ -1363,7 +1363,7 @@ Alias for `src/lib` folder, e.g.
 
 ```svelte
 <script>
-	import Button from '$lib/Button.svelte';
+  import Button from '$lib/Button.svelte'
 </script>
 
 <Button>Click me</Button>

@@ -25,6 +25,36 @@ export interface WorkspaceApi {
   getInfo: (workspacePath: string) => Promise<WorkspaceInfo | null>
   getImageList: (workspacePath: string) => Promise<ImageInfo[]>
   export: (workspacePath: string, options: ExportOptions) => Promise<ExportResult>
+  exportPreflight: (
+    workspacePath: string,
+    options: Pick<ExportOptions, 'includeCompletedOnly' | 'split'> & {
+      outOfBounds?: 'clip' | 'skip' | 'none'
+    }
+  ) => Promise<ExportPreflight>
+  getRecent: () => Promise<RecentWorkspace[]>
+  removeRecent: (workspacePath: string) => Promise<RecentWorkspace[]>
+  scanClassUsage: (workspacePath: string) => Promise<Record<number, number>>
+  reassignClass: (
+    workspacePath: string,
+    fromClassId: number,
+    toClassId: number | null
+  ) => Promise<{ updatedFiles: number; updatedAnnotations: number; deletedAnnotations: number }>
+}
+
+export interface ExportPreflight {
+  totalItems: number
+  totalAnnotations: number
+  outOfBoundsCount: number
+  skippedCount: number
+  splitCounts: { train: number; val: number; test: number }
+  perClassCounts: Record<number, number>
+  warnings: string[]
+}
+
+export interface RecentWorkspace {
+  path: string
+  name: string
+  lastOpened: number
 }
 
 export interface LabelApi {

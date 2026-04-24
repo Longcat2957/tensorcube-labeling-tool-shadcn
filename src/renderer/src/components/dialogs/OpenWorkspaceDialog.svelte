@@ -1,58 +1,58 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
-  import { getContext } from "svelte";
-  import * as Dialog from "$lib/components/ui/dialog/index.js";
-  import { Button } from "$lib/components/ui/button/index.js";
-  import { Label } from "$lib/components/ui/label/index.js";
-  import { FolderOpen, FileJson } from "@lucide/svelte";
-  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from "$lib/stores/workspace.svelte.js";
+  import type { Snippet } from 'svelte'
+  import { getContext } from 'svelte'
+  import * as Dialog from '$lib/components/ui/dialog/index.js'
+  import { Button } from '$lib/components/ui/button/index.js'
+  import { Label } from '$lib/components/ui/label/index.js'
+  import { FolderOpen, FileJson } from '@lucide/svelte'
+  import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
 
-  let { children }: { children: Snippet } = $props();
+  const { children }: { children: Snippet } = $props()
 
-  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY);
+  const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
 
-  let open = $state(false);
-  let workspacePath = $state("");
+  let open = $state(false)
+  let workspacePath = $state('')
   let workspaceInfo = $state<{
-    name: string;
-    labelingType: string;
-    imageCount: number;
-    lastModified: string;
-  } | null>(null);
-  let isLoading = $state(false);
+    name: string
+    labelingType: string
+    imageCount: number
+    lastModified: string
+  } | null>(null)
+  let isLoading = $state(false)
 
   async function selectWorkspace() {
-    const selectedPath = await window.api.dialog.selectWorkspaceFolder();
+    const selectedPath = await window.api.dialog.selectWorkspaceFolder()
     if (selectedPath) {
-      workspacePath = selectedPath;
+      workspacePath = selectedPath
       // workspace.yaml에서 정보 로드
-      const info = await window.api.workspace.getInfo(selectedPath);
+      const info = await window.api.workspace.getInfo(selectedPath)
       if (info) {
-        workspaceInfo = info;
+        workspaceInfo = info
       } else {
-        workspaceInfo = null;
+        workspaceInfo = null
       }
     }
   }
 
   async function handleOpen() {
-    if (!workspacePath) return;
-    
-    isLoading = true;
-    const success = await workspaceManager.openWorkspace(workspacePath);
-    isLoading = false;
-    
+    if (!workspacePath) return
+
+    isLoading = true
+    const success = await workspaceManager.openWorkspace(workspacePath)
+    isLoading = false
+
     if (success) {
-      open = false;
-      workspacePath = "";
-      workspaceInfo = null;
+      open = false
+      workspacePath = ''
+      workspaceInfo = null
     }
   }
 
   function handleCancel() {
-    open = false;
-    workspacePath = "";
-    workspaceInfo = null;
+    open = false
+    workspacePath = ''
+    workspaceInfo = null
   }
 </script>
 
@@ -98,7 +98,9 @@
             </div>
             <div>
               <span class="block text-xs">이미지 수</span>
-              <span class="font-medium text-foreground">{workspaceInfo.imageCount.toLocaleString()}개</span>
+              <span class="font-medium text-foreground"
+                >{workspaceInfo.imageCount.toLocaleString()}개</span
+              >
             </div>
             <div class="col-span-2">
               <span class="block text-xs">마지막 수정</span>
