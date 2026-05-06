@@ -11,10 +11,17 @@ import { Canvas, FabricImage } from 'fabric'
 import type {
   WorkspaceManager,
   BBAnnotation,
-  OBBAnnotation
+  OBBAnnotation,
+  PolygonAnnotation
 } from '../../stores/workspace.svelte.js'
 import type { ToolManager } from '../../stores/toolManager.svelte.js'
+import type { AppMode } from '../../stores/modeManager.svelte.js'
 import { createLabelBox, createLabelBadge } from '../boxFactory.js'
+import {
+  createPolygonObject,
+  extractPolygonFromObject,
+  updatePolygonPosition
+} from '../polygonFactory.js'
 import {
   updateBoxPosition,
   updateBadgePosition,
@@ -38,6 +45,52 @@ export interface LabelManagerContext {
   imageObject: FabricImage
   workspaceManager: WorkspaceManager
   toolManager: ToolManager
+  /** 현재 앱 모드. Check 모드에서는 박스 이동/회전이 잠기고 크기 조절만 허용된다. */
+  appMode: AppMode
+}
+
+/**
+ * Check 모드 = 검수(resize-only). 박스 이동/회전 잠금, 크기 조절만 허용.
+ * Polygon은 이미 scale/rotate 잠겨있으므로 movement까지 추가로 잠가 완전 read-only.
+ * Edit / Preview 모드는 일반 동작.
+ */
+export function applyModeLocksToBox(rect: BoxRect, mode: AppMode): void {
+  const isCheck = mode === 'check'
+  const shape = rect.data?.shape
+  if (shape === 'bb') {
+    rect.set({
+      lockMovementX: isCheck,
+      lockMovementY: isCheck,
+      lockRotation: true // BB는 항상 회전 잠금
+    })
+  } else if (shape === 'obb') {
+    rect.set({
+      lockMovementX: isCheck,
+      lockMovementY: isCheck,
+      lockRotation: isCheck // Check에서는 회전도 잠금
+    })
+  } else if (shape === 'polygon') {
+    rect.set({
+      lockMovementX: isCheck,
+      lockMovementY: isCheck
+      // scale/rotation은 polygonFactory에서 이미 잠금
+    })
+  }
+}
+
+/**
+ * 캔버스의 모든 라벨 박스에 현재 모드 기준 잠금 상태를 적용.
+ */
+export function applyModeLocksToAll(
+  fabricCanvas: Canvas | null,
+  labelBoxes: Map<string, CanvasLabelObjects>,
+  mode: AppMode
+): void {
+  if (!fabricCanvas) return
+  labelBoxes.forEach((objects) => {
+    applyModeLocksToBox(objects.rect, mode)
+  })
+  fabricCanvas.requestRenderAll()
 }
 
 // ============================================
@@ -225,6 +278,9 @@ export function addBoxToCanvas(
   fabricCanvas.bringObjectToFront(rect)
   labelBoxes.set(annotation.id, { rect, badge })
 
+  // 모드별 잠금 상태 적용 (Check 모드 = resize-only)
+  applyModeLocksToBox(rect, context.appMode)
+
   // 현재 도구에 맞는 커서 설정
   const currentTool = toolManager.currentTool
   if (currentTool === 'box') {
@@ -236,6 +292,117 @@ export function addBoxToCanvas(
   } else {
     rect.hoverCursor = 'move'
     rect.moveCursor = 'move'
+  }
+
+  fabricCanvas.requestRenderAll()
+}
+
+// ============================================
+// Polygon 라벨 캔버스 추가
+// ============================================
+
+/**
+ * Polygon 어노테이션을 캔버스에 추가.
+ * - move 후 modified 이벤트에서 새 polygon 좌표 추출
+ * - selection 이벤트는 BB/OBB와 동일 처리
+ */
+export function addPolygonToCanvas(
+  annotation: PolygonAnnotation,
+  context: LabelManagerContext,
+  labelBoxes: Map<string, CanvasLabelObjects>
+): void {
+  const { fabricCanvas, imageObject, workspaceManager, toolManager } = context
+
+  if (!fabricCanvas || !imageObject) return
+
+  const existingObjects = labelBoxes.get(annotation.id)
+  if (existingObjects) {
+    fabricCanvas.remove(existingObjects.rect)
+    fabricCanvas.remove(existingObjects.badge.background)
+    fabricCanvas.remove(existingObjects.badge.text)
+    labelBoxes.delete(annotation.id)
+  }
+
+  const scale = imageObject.scaleX || 1
+  const offset = getImageOffset(imageObject)
+  const className =
+    workspaceManager.workspaceConfig?.names?.[String(annotation.class_id)] ??
+    `Class ${annotation.class_id}`
+
+  const polygonObj = createPolygonObject(annotation, scale, offset.x, offset.y)
+  const badge = createLabelBadge(annotation, className, scale, offset.x, offset.y)
+
+  polygonObj.on('selected', (evt) => {
+    if (toolManager.currentTool === 'pan') {
+      fabricCanvas?.discardActiveObject()
+      fabricCanvas?.requestRenderAll()
+      return
+    }
+    const native = (evt as unknown as { e?: MouseEvent })?.e
+    if (native?.shiftKey) {
+      workspaceManager.toggleLabelSelection(annotation.id)
+    } else {
+      workspaceManager.setSelectedLabelId(annotation.id)
+    }
+    applySelectedStyle(polygonObj, true)
+    fabricCanvas?.requestRenderAll()
+  })
+
+  polygonObj.on('deselected', () => {
+    if (workspaceManager.selectedLabelIds.includes(annotation.id)) {
+      applySelectedStyle(polygonObj, true)
+      fabricCanvas?.requestRenderAll()
+      return
+    }
+    if (workspaceManager.selectedLabelId === annotation.id) {
+      workspaceManager.setSelectedLabelId(null)
+    }
+    applySelectedStyle(polygonObj, false)
+    fabricCanvas?.requestRenderAll()
+  })
+
+  polygonObj.on('modified', () => {
+    if (!imageObject) return
+    const s = imageObject.scaleX || 1
+    const o = getImageOffset(imageObject)
+    const newPolygon = extractPolygonFromObject(polygonObj, s, o.x, o.y)
+    workspaceManager.updatePolygonAnnotation(annotation.id, newPolygon)
+
+    // 뱃지 위치 동기화 (AABB 기준 top-left)
+    const objects = labelBoxes.get(annotation.id)
+    if (objects && newPolygon.length > 0) {
+      const xs = newPolygon.map((p) => p[0])
+      const ys = newPolygon.map((p) => p[1])
+      const minX = Math.min(...xs)
+      const minY = Math.min(...ys)
+      const maxX = Math.max(...xs)
+      const maxY = Math.max(...ys)
+      // 가짜 bbox로 badge 위치 갱신
+      updateBadgePosition(objects.badge, [minX, minY, maxX, maxY], s, o.x, o.y, true, className)
+    }
+    fabricCanvas?.requestRenderAll()
+  })
+
+  if (workspaceManager.selectedLabelId === annotation.id) {
+    applySelectedStyle(polygonObj, true)
+  }
+
+  fabricCanvas.add(badge.background)
+  fabricCanvas.add(badge.text)
+  fabricCanvas.add(polygonObj)
+  fabricCanvas.bringObjectToFront(polygonObj)
+  labelBoxes.set(annotation.id, { rect: polygonObj, badge })
+
+  // 모드별 잠금 상태 적용 (Check 모드 = polygon read-only)
+  applyModeLocksToBox(polygonObj, context.appMode)
+
+  const currentTool = toolManager.currentTool
+  if (currentTool === 'polygon') {
+    polygonObj.hoverCursor = 'crosshair'
+  } else if (currentTool === 'pan') {
+    polygonObj.hoverCursor = 'grab'
+  } else {
+    polygonObj.hoverCursor = 'move'
   }
 
   fabricCanvas.requestRenderAll()
@@ -286,13 +453,32 @@ export function updateAllBoxPositions(
   labelBoxes.forEach((objects, labelId) => {
     const bbAnnotation = workspaceManager.getBBAnnotationById(labelId)
     const obbAnnotation = workspaceManager.getOBBAnnotationById(labelId)
-    const annotation = bbAnnotation ?? obbAnnotation
+    const polyAnnotation = workspaceManager.getPolygonAnnotationById(labelId)
+    const annotation = bbAnnotation ?? obbAnnotation ?? polyAnnotation
 
-    if (annotation) {
+    if (!annotation) return
+
+    const className =
+      workspaceManager.workspaceConfig?.names?.[String(annotation.class_id)] ??
+      `Class ${annotation.class_id}`
+
+    if ('polygon' in annotation) {
+      updatePolygonPosition(objects.rect, annotation.polygon, scale, offset.x, offset.y)
+      if (annotation.polygon.length > 0) {
+        const xs = annotation.polygon.map((p) => p[0])
+        const ys = annotation.polygon.map((p) => p[1])
+        updateBadgePosition(
+          objects.badge,
+          [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+          scale,
+          offset.x,
+          offset.y,
+          true,
+          className
+        )
+      }
+    } else {
       const coords = 'bbox' in annotation ? annotation.bbox : annotation.obb
-      const className =
-        workspaceManager.workspaceConfig?.names?.[String(annotation.class_id)] ??
-        `Class ${annotation.class_id}`
       updateBoxPosition(objects.rect, coords, scale, offset.x, offset.y)
       updateBadgePosition(
         objects.badge,
@@ -331,7 +517,16 @@ export function renderLabels(
   if (!labelData || !labelData.annotations) return
 
   labelData.annotations.forEach((ann) => {
-    if (ann && typeof ann === 'object' && ('bbox' in ann || 'obb' in ann)) {
+    if (!ann || typeof ann !== 'object') return
+    if ('keypoints' in ann) {
+      // Keypoint 는 Phase 15b에서 추가
+      return
+    }
+    if ('polygon' in ann) {
+      addPolygonToCanvas(ann as PolygonAnnotation, context, labelBoxes)
+      return
+    }
+    if ('bbox' in ann || 'obb' in ann) {
       addBoxToCanvas(ann as BBAnnotation | OBBAnnotation, context, labelBoxes)
     }
   })
@@ -372,34 +567,61 @@ export function syncLabelChanges(
   const scale = imageObject.scaleX || 1
   const offset = getImageOffset(imageObject)
 
-  // 추가/갱신 동기화
   labelData.annotations.forEach((ann) => {
-    if (!ann || typeof ann !== 'object' || (!('bbox' in ann) && !('obb' in ann))) return
+    if (!ann || typeof ann !== 'object') return
+    if ('keypoints' in ann) return // Phase 15b
 
-    const annotation = ann as BBAnnotation | OBBAnnotation
-    const existingObjects = labelBoxes.get(annotation.id)
+    const className =
+      workspaceManager.workspaceConfig?.names?.[String(ann.class_id)] ?? `Class ${ann.class_id}`
 
-    if (!existingObjects) {
-      addBoxToCanvas(annotation, context, labelBoxes)
+    if ('polygon' in ann) {
+      const annotation = ann as PolygonAnnotation
+      const existingObjects = labelBoxes.get(annotation.id)
+      if (!existingObjects) {
+        addPolygonToCanvas(annotation, context, labelBoxes)
+        return
+      }
+      updatePolygonPosition(existingObjects.rect, annotation.polygon, scale, offset.x, offset.y)
+      // 뱃지: AABB 기준
+      if (annotation.polygon.length > 0) {
+        const xs = annotation.polygon.map((p) => p[0])
+        const ys = annotation.polygon.map((p) => p[1])
+        updateBadgePosition(
+          existingObjects.badge,
+          [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+          scale,
+          offset.x,
+          offset.y,
+          true,
+          className
+        )
+      }
+      applySelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id)
+      existingObjects.rect.setCoords()
       return
     }
 
-    const coords = 'bbox' in annotation ? annotation.bbox : annotation.obb
-    const className =
-      workspaceManager.workspaceConfig?.names?.[String(annotation.class_id)] ??
-      `Class ${annotation.class_id}`
-    updateBoxPosition(existingObjects.rect, coords, scale, offset.x, offset.y)
-    updateBadgePosition(
-      existingObjects.badge,
-      coords,
-      scale,
-      offset.x,
-      offset.y,
-      'bbox' in annotation,
-      className
-    )
-    applySelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id)
-    existingObjects.rect.setCoords()
+    if ('bbox' in ann || 'obb' in ann) {
+      const annotation = ann as BBAnnotation | OBBAnnotation
+      const existingObjects = labelBoxes.get(annotation.id)
+      if (!existingObjects) {
+        addBoxToCanvas(annotation, context, labelBoxes)
+        return
+      }
+      const coords = 'bbox' in annotation ? annotation.bbox : annotation.obb
+      updateBoxPosition(existingObjects.rect, coords, scale, offset.x, offset.y)
+      updateBadgePosition(
+        existingObjects.badge,
+        coords,
+        scale,
+        offset.x,
+        offset.y,
+        'bbox' in annotation,
+        className
+      )
+      applySelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id)
+      existingObjects.rect.setCoords()
+    }
   })
 
   fabricCanvas.requestRenderAll()

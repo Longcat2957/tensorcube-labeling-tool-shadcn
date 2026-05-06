@@ -2,7 +2,17 @@
   import { getContext, onMount, type Snippet } from 'svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip/index.js'
-  import { ArrowLeft, ArrowRight, MousePointer2, Square, Undo, Redo, Trash2 } from '@lucide/svelte'
+  import {
+    ArrowLeft,
+    ArrowRight,
+    MousePointer2,
+    Square,
+    Pentagon,
+    Undo,
+    Redo,
+    Trash2,
+    LayoutGrid
+  } from '@lucide/svelte'
   import {
     KEYBOARD_MANAGER_KEY,
     type KeyboardAction,
@@ -11,11 +21,16 @@
   } from '$lib/stores/keyboardManager.svelte.js'
   import { TOOL_MANAGER_KEY, type ToolManager } from '$lib/stores/toolManager.svelte.js'
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
+  import { MODE_MANAGER_KEY, type ModeManager } from '$lib/stores/modeManager.svelte.js'
 
   // Context 가져오기
   const keyboardManager = getContext<KeyboardManager>(KEYBOARD_MANAGER_KEY)
   const toolManager = getContext<ToolManager>(TOOL_MANAGER_KEY)
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
+  const modeManager = getContext<ModeManager>(MODE_MANAGER_KEY)
+
+  // Check / Preview 모드에서는 박스/폴리곤 생성 + 삭제 비활성
+  const isEditMode = $derived(modeManager.current === 'edit')
 
   // 단축키 액션 핸들러
   function handlePrevImage() {
@@ -31,7 +46,13 @@
   }
 
   function handleBoxTool() {
+    if (!isEditMode) return
     toolManager.setTool('box')
+  }
+
+  function handlePolygonTool() {
+    if (!isEditMode) return
+    toolManager.setTool('polygon')
   }
 
   const boxToolLabel = $derived(
@@ -47,8 +68,19 @@
   }
 
   function handleDelete() {
+    if (!isEditMode) return
     workspaceManager.deleteSelectedLabels()
   }
+
+  // Check 모드 진입 시 박스/폴리곤 도구가 켜져 있으면 select로 강제 전환
+  $effect(() => {
+    if (
+      modeManager.current !== 'edit' &&
+      (toolManager.currentTool === 'box' || toolManager.currentTool === 'polygon')
+    ) {
+      toolManager.setTool('select')
+    }
+  })
 
   // 단축키 핸들러 등록
   onMount(() => {
@@ -106,6 +138,7 @@
 {#snippet arrowRightIcon()}<ArrowRight />{/snippet}
 {#snippet selectIcon()}<MousePointer2 />{/snippet}
 {#snippet boxIcon()}<Square />{/snippet}
+{#snippet polygonIcon()}<Pentagon />{/snippet}
 {#snippet undoIcon()}<Undo />{/snippet}
 {#snippet redoIcon()}<Redo />{/snippet}
 {#snippet trashIcon()}<Trash2 />{/snippet}
@@ -121,9 +154,32 @@
     {@render hintedButton('select-tool', '선택 도구', handleSelectTool, selectIcon, {
       active: toolManager.currentTool === 'select'
     })}
-    {@render hintedButton('box-tool', boxToolLabel, handleBoxTool, boxIcon, {
-      active: toolManager.currentTool === 'box'
-    })}
+    {#if workspaceManager.isPolygonMode}
+      <Tooltip>
+        <TooltipTrigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant={toolManager.currentTool === 'polygon' ? 'secondary' : 'ghost'}
+              size="icon"
+              aria-label="Polygon 생성 도구"
+              onclick={handlePolygonTool}
+              disabled={!isEditMode}
+            >
+              {@render polygonIcon()}
+            </Button>
+          {/snippet}
+        </TooltipTrigger>
+        <TooltipContent side="right"
+          >Polygon 생성 (클릭 정점 추가, 더블클릭/Enter 닫기, ESC 취소)</TooltipContent
+        >
+      </Tooltip>
+    {:else}
+      {@render hintedButton('box-tool', boxToolLabel, handleBoxTool, boxIcon, {
+        active: toolManager.currentTool === 'box',
+        disabled: !isEditMode
+      })}
+    {/if}
     <div class="h-px w-8 bg-border my-1" role="separator"></div>
     {@render hintedButton('undo', '실행 취소', handleUndo, undoIcon, {
       disabled: !workspaceManager.canUndo
@@ -132,8 +188,25 @@
       disabled: !workspaceManager.canRedo
     })}
     {@render hintedButton('delete', '선택된 라벨 삭제', handleDelete, trashIcon, {
-      disabled: workspaceManager.selectedLabelIds.length === 0,
+      disabled: !isEditMode || workspaceManager.selectedLabelIds.length === 0,
       className: 'mt-auto text-destructive'
     })}
+    <div class="h-px w-8 bg-border my-1" role="separator"></div>
+    <Tooltip>
+      <TooltipTrigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant={workspaceManager.gridViewActive ? 'secondary' : 'ghost'}
+            size="icon"
+            aria-label="썸네일 그리드 뷰 토글"
+            onclick={() => workspaceManager.toggleGridView()}
+          >
+            <LayoutGrid />
+          </Button>
+        {/snippet}
+      </TooltipTrigger>
+      <TooltipContent side="right">썸네일 그리드</TooltipContent>
+    </Tooltip>
   </div>
 </aside>

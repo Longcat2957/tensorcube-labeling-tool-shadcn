@@ -6,12 +6,13 @@ import type {
   LabelData,
   BBAnnotation,
   OBBAnnotation,
+  PolygonAnnotation,
   ExportOptions,
   ExportResult
 } from '../../../../shared/types'
 
 // Re-export BBAnnotation for use in other components
-export type { BBAnnotation, OBBAnnotation } from '../../../../shared/types'
+export type { BBAnnotation, OBBAnnotation, PolygonAnnotation } from '../../../../shared/types'
 
 // 워크스페이스 상태
 let workspacePath = $state<string | null>(null)
@@ -23,6 +24,23 @@ let currentLabelData = $state<LabelData | null>(null)
 let selectedClassId = $state<number>(0)
 let autosaveTimer = $state<ReturnType<typeof setTimeout> | null>(null)
 let autosaveVersion = $state(0)
+
+/**
+ * 이미지 간 이동 중인지 플래그. 재진입 호출(rapid D press 등)을 차단해
+ * goToImage가 중첩되며 currentImage / currentLabelData / saveLabel이
+ * 서로 다른 이미지에 대해 돌아가는 race를 방지한다.
+ * reactive일 필요 없음(렌더링 의존성 없음) — module-local mutable.
+ */
+let isNavigating = false
+
+/**
+ * 저장 동시성 락 — 모든 saveLabel 호출은 이전 save 완료 후 순차 실행된다.
+ * main process의 saveLabelData 가 unlink → write 순서로 atomic이 아니므로,
+ * 두 호출이 동시에 같은 imageId의 파일을 조작하면 데이터가 소실되거나
+ * `_W` / `_C` 가 동시에 남는 inconsistent 상태가 발생할 수 있다.
+ * Promise chain으로 직렬화해 IPC 단위에서 한 번에 하나의 save만 실행시킨다.
+ */
+let savePromise: Promise<unknown> = Promise.resolve()
 
 // 히스토리 상태 (이미지별로 분리된 past/future 스택)
 // 이미지 간 왕복 후에도 이전 상태를 복구할 수 있도록 per-image로 관리한다.
@@ -72,6 +90,26 @@ type ClipboardEntry =
   | { kind: 'obb'; class_id: number; obb: [number, number, number, number, number] }
 let clipboard = $state<ClipboardEntry[]>([])
 
+// 워크스페이스 통계 (요청 시 IPC로 로드)
+import type { WorkspaceStats } from '../../../../shared/types'
+let workspaceStats = $state<WorkspaceStats | null>(null)
+let statsLoading = $state(false)
+
+// 이미지 리스트 필터 상태
+export type StatusFilter = 'none' | 'working' | 'completed'
+export interface ImageFilter {
+  /** 비어있으면 모든 상태 허용 */
+  statuses: StatusFilter[]
+  /** 특정 클래스 포함 이미지만 (null이면 비활성) */
+  classId: number | null
+  /** 박스 0개만 (true) / 1개 이상만 (false) / 모두 (null) */
+  boxesEmpty: boolean | null
+}
+let imageFilter = $state<ImageFilter>({ statuses: [], classId: null, boxesEmpty: null })
+
+// 그리드(썸네일) 뷰 토글
+let gridViewActive = $state<boolean>(false)
+
 // 파생 상태
 const isWorkspaceOpen = $derived(workspacePath !== null && workspaceConfig !== null)
 const currentImage = $derived(currentImageIndex >= 0 ? imageList[currentImageIndex] : null)
@@ -85,6 +123,32 @@ const canRedo = $derived((currentHistory?.future.length ?? 0) > 0)
 const labelingType = $derived(workspaceConfig?.labeling_type ?? 1)
 const isBBMode = $derived((workspaceConfig?.labeling_type ?? 1) === 1)
 const isOBBMode = $derived((workspaceConfig?.labeling_type ?? 1) === 2)
+const isPolygonMode = $derived((workspaceConfig?.labeling_type ?? 1) === 3)
+const isKeypointMode = $derived((workspaceConfig?.labeling_type ?? 1) === 4)
+
+// 필터 적용된 이미지 리스트
+const filteredImageList = $derived.by(() => {
+  const f = imageFilter
+  const stats = workspaceStats
+  const noStatusFilter = f.statuses.length === 0
+  const noClassFilter = f.classId === null
+  const noBoxFilter = f.boxesEmpty === null
+  if (noStatusFilter && noClassFilter && noBoxFilter) return imageList
+
+  return imageList.filter((img) => {
+    if (!noStatusFilter && !f.statuses.includes(img.status as StatusFilter)) return false
+    if (!noBoxFilter && stats) {
+      const cnt = stats.boxCountById[img.id] ?? 0
+      if (f.boxesEmpty === true && cnt > 0) return false
+      if (f.boxesEmpty === false && cnt === 0) return false
+    }
+    if (!noClassFilter && stats) {
+      const classes = stats.classesById[img.id] ?? []
+      if (!classes.includes(f.classId!)) return false
+    }
+    return true
+  })
+})
 
 // 클래스 리스트 (UI용으로 변환)
 const classList = $derived(() => {
@@ -162,20 +226,26 @@ function clearAutosaveTimer(): void {
 
 function scheduleAutosave(): void {
   if (!currentLabelData || !workspacePath || !currentImage) return
+  // 이미지 전환 중에는 autosave 스케줄 자체를 막아 stale 데이터가
+  // 새 이미지의 라벨 파일에 쓰이는 race를 방지한다.
+  if (isNavigating) return
 
   clearAutosaveTimer()
   saveStatus = 'dirty'
   const scheduledVersion = autosaveVersion + 1
   autosaveVersion = scheduledVersion
+  // 스케줄 시점의 이미지 id를 캡처. fire 시점에 currentImage가 바뀌어 있으면 drop.
+  const scheduledImageId = currentImage.id
 
   autosaveTimer = setTimeout(() => {
     autosaveTimer = null
 
-    if (scheduledVersion !== autosaveVersion || !currentLabelData) {
-      return
-    }
+    if (scheduledVersion !== autosaveVersion || !currentLabelData) return
+    // 이미지가 이미 바뀌었으면 이전 이미지의 데이터를 새 이미지 파일에 쓰지 않도록 drop.
+    if (!currentImage || currentImage.id !== scheduledImageId) return
+    if (isNavigating) return
 
-    void saveLabel(currentLabelData, false)
+    void saveLabel(currentLabelData, currentImage.status === 'completed')
   }, 500)
 }
 
@@ -207,6 +277,7 @@ async function openWorkspace(path: string): Promise<boolean> {
 // 워크스페이스 닫기
 function closeWorkspace(): void {
   clearAutosaveTimer()
+  isNavigating = false
   workspacePath = null
   workspaceConfig = null
   workspaceInfo = null
@@ -233,57 +304,140 @@ async function loadCurrentImageLabel(): Promise<void> {
 }
 
 // 이미지 이동
+//
+// 동시성 안전장치:
+// - isNavigating 플래그로 재진입 차단. rapid D / 마우스 클릭 다발에도 1회만 처리.
+// - pre-save는 saveStatus가 'dirty'일 때만 수행 — 이미 저장된 이미지를 다시 쓰지 않는다.
+//   특히 Check 모드에서 Space로 _C 마킹 직후 자동 next 시 _W로 되돌아가는 버그 방지.
+// - pre-save의 completed 플래그는 현재 이미지의 status를 보존 ('working' 또는 'completed').
 async function goToImage(index: number): Promise<void> {
-  if (index >= 0 && index < imageList.length) {
-    // 이미지 전환 전 현재 라벨 저장
-    if (currentLabelData && workspacePath && currentImage) {
+  if (index < 0 || index >= imageList.length) return
+  if (index === currentImageIndex) return
+  if (isNavigating) return
+
+  isNavigating = true
+  try {
+    if (saveStatus === 'dirty' && currentLabelData && workspacePath && currentImage) {
       clearAutosaveTimer()
-      await saveLabel(currentLabelData, false)
+      await saveLabel(currentLabelData, currentImage.status === 'completed')
+    } else {
+      // dirty가 아니면 보류된 timer만 취소 (혹시 남아있을 수 있음)
+      clearAutosaveTimer()
     }
     currentImageIndex = index
     await loadCurrentImageLabel()
+  } finally {
+    isNavigating = false
   }
 }
 
+/**
+ * 다음/이전 이미지 — 필터가 활성화된 경우 필터된 리스트 안에서만 이동.
+ * 필터 비활성 또는 현재 이미지가 필터 결과에 없으면 전체 imageList에서 다음/이전.
+ */
+function findNextFilteredIndex(direction: 1 | -1): number | null {
+  const filtered = filteredImageList
+  if (filtered.length === 0) return null
+  if (filtered.length === imageList.length) {
+    // 필터 비활성 — 전체 리스트 기준
+    const next = currentImageIndex + direction
+    return next >= 0 && next < imageList.length ? next : null
+  }
+
+  const currentId = imageList[currentImageIndex]?.id
+  const filteredIdx = filtered.findIndex((i) => i.id === currentId)
+  if (filteredIdx === -1) {
+    // 현재가 필터에 없으면 첫/마지막 필터 항목으로
+    const target = direction === 1 ? filtered[0] : filtered[filtered.length - 1]
+    return imageList.findIndex((i) => i.id === target.id)
+  }
+  const nextFilteredIdx = filteredIdx + direction
+  if (nextFilteredIdx < 0 || nextFilteredIdx >= filtered.length) return null
+  const targetId = filtered[nextFilteredIdx].id
+  return imageList.findIndex((i) => i.id === targetId)
+}
+
 async function nextImage(): Promise<void> {
-  if (currentImageIndex < imageList.length - 1) {
-    await goToImage(currentImageIndex + 1)
+  const next = findNextFilteredIndex(1)
+  if (next !== null && next !== currentImageIndex) {
+    await goToImage(next)
   }
 }
 
 async function prevImage(): Promise<void> {
-  if (currentImageIndex > 0) {
-    await goToImage(currentImageIndex - 1)
+  const prev = findNextFilteredIndex(-1)
+  if (prev !== null && prev !== currentImageIndex) {
+    await goToImage(prev)
   }
 }
 
 // 라벨 저장
+//
+// 동시성 안전장치:
+// - targetImageId / targetWorkspacePath 를 IPC 호출 *전*에 동기적으로 캡처한다.
+//   await 사이에 currentImage / workspacePath 가 바뀌어도 IPC는 올바른 대상에 쓴다.
+// - savePromise 체인으로 IPC를 직렬화 — 이전 save가 끝나야 다음 save IPC가 시작된다.
+//   같은 파일에 대한 unlink/write race를 막는다 (main의 saveLabelData가 atomic이 아님).
+// - imageList 는 idx가 아닌 id로 매칭해서 갱신 — currentImageIndex가 미세하게
+//   shift되더라도 엉뚱한 항목이 갱신되지 않는다.
+// - 사용자에게 보이는 reactive 상태(currentLabelData/saveStatus/lastSavedAt)는
+//   "저장 완료 시점에 여전히 같은 이미지를 보고 있을 때"만 갱신한다.
+//   백그라운드 save가 새 이미지의 화면을 덮어쓰는 것을 막는다.
 async function saveLabel(data: LabelData, completed: boolean = false): Promise<boolean> {
   if (!workspacePath || !currentImage) return false
 
+  const targetWorkspacePath = workspacePath
+  const targetImageId = currentImage.id
+
+  // 호출 시점에 사용자가 보고 있던 이미지에 대해서만 saveStatus를 'saving'으로 표시
   saveStatus = 'saving'
 
   // $state 프록시를 벗긴 snapshot을 IPC로 전송 (Electron structured clone 대응)
   const plainData = $state.snapshot(data)
-  const success = await window.api.label.save(workspacePath, currentImage.id, plainData, completed)
 
-  if (success) {
-    currentLabelData = data
-    lastSavedAt = Date.now()
-    saveStatus = 'saved'
+  // 직전 save가 끝날 때까지 대기 후 IPC 실행 — Promise 체인 기반 mutex
+  const previous = savePromise
+  const myTurn = (async (): Promise<boolean> => {
+    // 이전 save가 reject되더라도 chain이 끊기지 않도록 swallow
+    await previous.catch(() => undefined)
 
-    // 이미지 상태 업데이트
-    imageList = imageList.map((img, idx) => {
-      if (idx === currentImageIndex) {
-        return { ...img, status: completed ? 'completed' : 'working' }
+    const success = await window.api.label.save(
+      targetWorkspacePath,
+      targetImageId,
+      plainData,
+      completed
+    )
+
+    // 저장된 이미지의 status는 항상 id-키로 갱신 (인덱스 시프트와 무관)
+    if (success) {
+      imageList = imageList.map((img) =>
+        img.id === targetImageId ? { ...img, status: completed ? 'completed' : 'working' } : img
+      )
+    }
+
+    // 사용자가 여전히 같은 이미지를 보고 있을 때만 visible state 갱신
+    const stillOnSameImage =
+      currentImage !== null &&
+      currentImage.id === targetImageId &&
+      workspacePath === targetWorkspacePath
+
+    if (stillOnSameImage) {
+      if (success) {
+        currentLabelData = data
+        lastSavedAt = Date.now()
+        saveStatus = 'saved'
+      } else {
+        saveStatus = 'error'
       }
-      return img
-    })
-  } else {
-    saveStatus = 'error'
-  }
+    }
 
-  return success
+    return success
+  })()
+
+  // 다음 save가 이 작업을 await할 수 있도록 chain 갱신.
+  // 에러는 chain에서 swallow — 후속 save는 멈추지 않는다.
+  savePromise = myTurn.catch(() => undefined)
+  return myTurn
 }
 
 // 워크스페이스 상태 업데이트
@@ -512,11 +666,137 @@ function pasteClipboard(): number {
   return newAnnotations.length
 }
 
-// Ctrl+S: 디바운스 autosave 대기 없이 즉시 현재 상태를 디스크에 flush
+// ============================================
+// Image-level Tags (A-3)
+// ============================================
+
+function ensureLabelData(): LabelData {
+  if (currentLabelData) return currentLabelData
+  if (!currentImage) {
+    throw new Error('현재 이미지가 없는 상태에서 라벨 데이터를 생성할 수 없음')
+  }
+  const fresh: LabelData = {
+    image_info: {
+      filename: currentImage.filename,
+      width: imageWidth,
+      height: imageHeight
+    },
+    annotations: [],
+    tags: []
+  }
+  currentLabelData = fresh
+  return fresh
+}
+
+function addCurrentTag(tag: string): boolean {
+  const t = tag.trim()
+  if (!t || !currentImage) return false
+  const data = ensureLabelData()
+  const existing = data.tags ?? []
+  if (existing.includes(t)) return false
+  pushHistorySnapshot()
+  currentLabelData = { ...data, tags: [...existing, t] }
+  scheduleAutosave()
+  return true
+}
+
+function removeCurrentTag(tag: string): boolean {
+  if (!currentLabelData?.tags || currentLabelData.tags.length === 0) return false
+  if (!currentLabelData.tags.includes(tag)) return false
+  pushHistorySnapshot()
+  currentLabelData = {
+    ...currentLabelData,
+    tags: currentLabelData.tags.filter((t) => t !== tag)
+  }
+  scheduleAutosave()
+  return true
+}
+
+/**
+ * 직전 이미지(currentImageIndex - 1)의 모든 어노테이션을
+ * 현재 이미지에 복제한다. 현재 라벨링 모드와 일치하는 항목만 복제.
+ * 좌표는 그대로 (이미지 크기 차이는 사용자가 인지하고 사용한다는 가정).
+ * 반환: 복제된 어노테이션 수.
+ */
+async function replicatePreviousImageLabels(): Promise<number> {
+  if (!workspacePath || !currentImage || currentImageIndex <= 0) return 0
+  const prev = imageList[currentImageIndex - 1]
+  if (!prev) return 0
+
+  const prevData = await window.api.label.read(workspacePath, prev.id)
+  if (!prevData?.annotations || prevData.annotations.length === 0) return 0
+
+  const bbMode = isBBMode
+  const newAnnotations: (BBAnnotation | OBBAnnotation)[] = []
+  for (const ann of prevData.annotations) {
+    if (bbMode && 'bbox' in ann) {
+      newAnnotations.push({
+        id: crypto.randomUUID(),
+        class_id: ann.class_id,
+        bbox: [...ann.bbox] as [number, number, number, number]
+      })
+    } else if (!bbMode && 'obb' in ann) {
+      newAnnotations.push({
+        id: crypto.randomUUID(),
+        class_id: ann.class_id,
+        obb: [...ann.obb] as [number, number, number, number, number]
+      })
+    }
+  }
+  if (newAnnotations.length === 0) return 0
+
+  pushHistorySnapshot()
+  const base: LabelData = currentLabelData ?? {
+    image_info: {
+      filename: currentImage.filename,
+      width: imageWidth,
+      height: imageHeight
+    },
+    annotations: []
+  }
+  currentLabelData = {
+    ...base,
+    annotations: [...base.annotations, ...newAnnotations]
+  }
+  selectedLabelIds = newAnnotations.map((a) => a.id)
+  selectedLabelId = newAnnotations[newAnnotations.length - 1]?.id ?? null
+  scheduleAutosave()
+  return newAnnotations.length
+}
+
+/**
+ * 현재 이미지의 완료(`_C`) 상태를 토글하고 즉시 저장한다.
+ * 'completed' → 'working', 그 외(none/working) → 'completed'.
+ * Review 모드에서 Space로 빠르게 검수 마킹할 때 사용.
+ */
+async function toggleCurrentCompletion(): Promise<boolean> {
+  if (!workspacePath || !currentImage) return false
+  clearAutosaveTimer()
+  // 라벨 데이터가 아직 없으면(파일이 비어있거나 없음) 빈 어노테이션 라벨로 초기화하여 토글 허용
+  const dataToSave: LabelData = currentLabelData ?? {
+    image_info: {
+      filename: currentImage.filename,
+      width: imageWidth,
+      height: imageHeight
+    },
+    annotations: []
+  }
+  const nextCompleted = currentImage.status !== 'completed'
+  const ok = await saveLabel(dataToSave, nextCompleted)
+  if (ok) {
+    console.log(
+      `[Review] ${currentImage.id} → ${nextCompleted ? 'completed (_C)' : 'working (_W)'}`
+    )
+  }
+  return ok
+}
+
+// Ctrl+S: 디바운스 autosave 대기 없이 즉시 현재 상태를 디스크에 flush.
+// 검수 완료(_C) 상태는 보존 — 명시적 저장이 _W로 되돌리지 않도록.
 async function flushSave(): Promise<boolean> {
   if (!currentLabelData || !workspacePath || !currentImage) return false
   clearAutosaveTimer()
-  return await saveLabel(currentLabelData, false)
+  return await saveLabel(currentLabelData, currentImage.status === 'completed')
 }
 
 function addBBAnnotation(annotation: BBAnnotation): void {
@@ -562,6 +842,61 @@ function addOBBAnnotation(annotation: OBBAnnotation): void {
   }
 
   scheduleAutosave()
+}
+
+function addPolygonAnnotation(annotation: PolygonAnnotation): void {
+  pushHistorySnapshot()
+
+  if (!currentLabelData) {
+    currentLabelData = {
+      image_info: {
+        filename: currentImage?.filename || '',
+        width: imageWidth,
+        height: imageHeight
+      },
+      annotations: [annotation]
+    }
+  } else {
+    currentLabelData = {
+      ...currentLabelData,
+      annotations: [...currentLabelData.annotations, annotation]
+    }
+  }
+
+  scheduleAutosave()
+}
+
+function updatePolygonAnnotation(labelId: string, polygon: [number, number][]): void {
+  if (!currentLabelData) return
+  const ann = currentLabelData.annotations.find((a) => a.id === labelId) as
+    | PolygonAnnotation
+    | undefined
+  if (!ann) return
+
+  // 같은 폴리곤이면 무시 (좌표 비교)
+  const hasChanged =
+    ann.polygon.length !== polygon.length ||
+    ann.polygon.some((p, i) => p[0] !== polygon[i][0] || p[1] !== polygon[i][1])
+  if (!hasChanged) return
+
+  pushHistorySnapshot()
+
+  currentLabelData = {
+    ...currentLabelData,
+    annotations: currentLabelData.annotations.map((annotation) => {
+      if (annotation.id !== labelId || !('polygon' in annotation)) return annotation
+      return { ...annotation, polygon }
+    })
+  }
+
+  scheduleAutosave()
+}
+
+function getPolygonAnnotationById(labelId: string): PolygonAnnotation | undefined {
+  if (!currentLabelData) return undefined
+  return currentLabelData.annotations.find((ann) => ann.id === labelId) as
+    | PolygonAnnotation
+    | undefined
 }
 
 function deleteLabel(labelId: string): void {
@@ -674,6 +1009,45 @@ function updateOBBAnnotation(labelId: string, obb: [number, number, number, numb
   scheduleAutosave()
 }
 
+/**
+ * 현재 단일 선택된 박스의 크기를 axis(`w`/`h`) 방향으로 delta(px) 만큼 조절.
+ * - BB: 좌상단 고정, xmax/ymax만 이동 (delta>0 = 늘림)
+ * - OBB: 중심 고정, w/h 만 변경 (delta>0 = 늘림)
+ * - 최소 1px 보장 (그 이하 요청은 1로 클램프)
+ * - Polygon / Keypoint / 다중 선택 / 미선택은 no-op
+ * - undo/redo 통합 + autosave 트리거
+ */
+function resizeSelectedBox(axis: 'w' | 'h', delta: number): boolean {
+  if (!currentLabelData) return false
+  if (selectedLabelIds.length !== 1) return false
+  const id = selectedLabelIds[0]
+  const ann = currentLabelData.annotations.find((a) => a.id === id)
+  if (!ann) return false
+
+  if ('bbox' in ann) {
+    const [xmin, ymin, xmax, ymax] = ann.bbox
+    let newXmax = xmax
+    let newYmax = ymax
+    if (axis === 'w') newXmax = Math.max(xmin + 1, xmax + delta)
+    else newYmax = Math.max(ymin + 1, ymax + delta)
+    if (newXmax === xmax && newYmax === ymax) return false
+    updateBBAnnotation(id, [xmin, ymin, newXmax, newYmax])
+    return true
+  }
+  if ('obb' in ann) {
+    const [cx, cy, w, h, angle] = ann.obb
+    let newW = w
+    let newH = h
+    if (axis === 'w') newW = Math.max(1, w + delta)
+    else newH = Math.max(1, h + delta)
+    if (newW === w && newH === h) return false
+    updateOBBAnnotation(id, [cx, cy, newW, newH, angle])
+    return true
+  }
+  // polygon / keypoint 등 — 키보드 resize 비대상
+  return false
+}
+
 function undo(): void {
   const id = currentImage?.id
   if (!id) return
@@ -717,6 +1091,45 @@ export function createWorkspaceManager() {
     },
     get imageList() {
       return imageList
+    },
+    get filteredImageList() {
+      return filteredImageList
+    },
+    get imageFilter() {
+      return imageFilter
+    },
+    setImageFilter(next: Partial<ImageFilter>) {
+      imageFilter = { ...imageFilter, ...next }
+    },
+    clearImageFilter() {
+      imageFilter = { statuses: [], classId: null, boxesEmpty: null }
+    },
+    get workspaceStats() {
+      return workspaceStats
+    },
+    get statsLoading() {
+      return statsLoading
+    },
+    get gridViewActive() {
+      return gridViewActive
+    },
+    setGridViewActive(v: boolean) {
+      gridViewActive = v
+    },
+    toggleGridView() {
+      gridViewActive = !gridViewActive
+    },
+    async refreshStats() {
+      if (!workspacePath) return
+      statsLoading = true
+      try {
+        workspaceStats = await window.api.workspace.computeStats(workspacePath)
+      } catch (err) {
+        console.error('통계 로드 실패', err)
+        workspaceStats = null
+      } finally {
+        statsLoading = false
+      }
     },
     get currentImageIndex() {
       return currentImageIndex
@@ -762,6 +1175,12 @@ export function createWorkspaceManager() {
     },
     get isOBBMode() {
       return isOBBMode
+    },
+    get isPolygonMode() {
+      return isPolygonMode
+    },
+    get isKeypointMode() {
+      return isKeypointMode
     },
 
     // 캔버스 상태
@@ -834,13 +1253,24 @@ export function createWorkspaceManager() {
     flushSave,
     copySelectedLabels,
     pasteClipboard,
+    replicatePreviousImageLabels,
+    toggleCurrentCompletion,
+    addCurrentTag,
+    removeCurrentTag,
+    get currentTags() {
+      return currentLabelData?.tags ?? []
+    },
     addBBAnnotation,
     addOBBAnnotation,
+    addPolygonAnnotation,
     updateBBAnnotation,
     updateOBBAnnotation,
+    updatePolygonAnnotation,
+    getPolygonAnnotationById,
     deleteLabel,
     getBBAnnotationById,
     getOBBAnnotationById,
+    resizeSelectedBox,
     undo,
     redo,
 

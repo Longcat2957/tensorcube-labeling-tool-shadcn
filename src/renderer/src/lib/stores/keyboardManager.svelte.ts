@@ -6,10 +6,9 @@
 
 // 단축키 액션 타입 정의
 export type KeyboardAction =
-  | 'prev-image' // A - 이전 이미지
-  | 'next-image' // D - 다음 이미지
-  | 'prev-class' // 3 - 이전 클래스
-  | 'next-class' // 4 - 다음 클래스
+  | 'prev-image' // A / PageUp - 이전 이미지
+  | 'next-image' // D / PageDown - 다음 이미지
+  | 'select-class' // 1-9 - 클래스 직접 선택 (payload = '1'..'9')
   | 'select-tool' // V - 선택 도구
   | 'box-tool' // B - 박스 생성 도구
   | 'pan-tool' // P - 패닝 도구
@@ -23,13 +22,15 @@ export type KeyboardAction =
   | 'save' // Ctrl+S - 현재 라벨 저장 (_C 처리 아님, 수동 flush)
   | 'copy' // Ctrl+C - 선택된 라벨 복사
   | 'paste' // Ctrl+V - 현재 이미지에 붙여넣기
+  | 'replicate-prev' // Ctrl+Shift+V - 직전 이미지 박스 일괄 복제
+  | 'toggle-complete' // Space - 현재 이미지 _C 토글 (Review 모드)
+  | 'resize-selected' // Arrow keys - 선택 박스 크기 조절 (payload = "w:±N" 또는 "h:±N")
 
 // 액션 설명 매핑
 export const ACTION_DESCRIPTIONS: Record<KeyboardAction, string> = {
   'prev-image': '이전 이미지',
   'next-image': '다음 이미지',
-  'prev-class': '이전 클래스',
-  'next-class': '다음 클래스',
+  'select-class': '클래스 선택',
   'select-tool': '선택 도구',
   'box-tool': '박스 생성 도구',
   'pan-tool': '이동 도구',
@@ -42,15 +43,17 @@ export const ACTION_DESCRIPTIONS: Record<KeyboardAction, string> = {
   'prev-mode': '이전 모드',
   save: '저장',
   copy: '선택 라벨 복사',
-  paste: '라벨 붙여넣기'
+  paste: '라벨 붙여넣기',
+  'replicate-prev': '직전 이미지 박스 복제',
+  'toggle-complete': '검수 완료 토글',
+  'resize-selected': '선택 박스 크기 조절'
 }
 
 // 툴팁용 단축키 표시 문자열
 export const ACTION_SHORTCUTS: Record<KeyboardAction, string> = {
-  'prev-image': 'A',
-  'next-image': 'D',
-  'prev-class': '3',
-  'next-class': '4',
+  'prev-image': 'A / PageUp',
+  'next-image': 'D / PageDown',
+  'select-class': '1-9',
   'select-tool': 'V',
   'box-tool': 'B',
   'pan-tool': 'P',
@@ -63,7 +66,10 @@ export const ACTION_SHORTCUTS: Record<KeyboardAction, string> = {
   'prev-mode': 'Shift+Tab',
   save: 'Ctrl+S',
   copy: 'Ctrl+C',
-  paste: 'Ctrl+V'
+  paste: 'Ctrl+V',
+  'replicate-prev': 'Ctrl+Shift+V',
+  'toggle-complete': 'Space',
+  'resize-selected': '↑ ↓ ← → (Shift = ±10px)'
 }
 
 // 키보드 이벤트 상태 인터페이스
@@ -80,8 +86,8 @@ const KEY_BINDINGS: Record<string, KeyboardAction> = {
   A: 'prev-image',
   d: 'next-image',
   D: 'next-image',
-  '3': 'prev-class',
-  '4': 'next-class',
+  PageUp: 'prev-image',
+  PageDown: 'next-image',
   v: 'select-tool',
   V: 'select-tool',
   b: 'box-tool',
@@ -94,7 +100,8 @@ const KEY_BINDINGS: Record<string, KeyboardAction> = {
   Backspace: 'delete',
   h: 'toggle-labels',
   H: 'toggle-labels',
-  Tab: 'next-mode'
+  Tab: 'next-mode',
+  ' ': 'toggle-complete'
 }
 
 // 키 표시용 포맷팅
@@ -138,8 +145,9 @@ export function createKeyboardManager() {
   })
 
   // 액션 핸들러 맵 — reactive 대상 아닌 내부 dispatch 레지스트리.
+  // 핸들러는 옵션 payload(선택 키 디지트 등)를 받을 수 있다.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const actionHandlers = new Map<KeyboardAction, Set<() => void>>()
+  const actionHandlers = new Map<KeyboardAction, Set<(payload?: string) => void>>()
 
   /**
    * 키보드 이벤트 처리
@@ -153,6 +161,7 @@ export function createKeyboardManager() {
 
     const key = event.key
     let action: KeyboardAction | null = null
+    let payload: string | undefined
 
     // Ctrl 조합키 처리
     if (event.ctrlKey || event.metaKey) {
@@ -165,12 +174,31 @@ export function createKeyboardManager() {
       } else if (key === 'c' || key === 'C') {
         action = 'copy'
       } else if (key === 'v' || key === 'V') {
-        action = 'paste'
+        action = event.shiftKey ? 'replicate-prev' : 'paste'
       }
     }
     // Shift+Tab 처리
     else if (event.shiftKey && key === 'Tab') {
       action = 'prev-mode'
+    }
+    // 숫자키 1-9 → select-class with payload
+    else if (key >= '1' && key <= '9') {
+      action = 'select-class'
+      payload = key
+    }
+    // Arrow keys → resize-selected (payload "<axis>:<delta>") — Shift = 10px 큰 폭
+    else if (
+      key === 'ArrowRight' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowDown'
+    ) {
+      const step = event.shiftKey ? 10 : 1
+      action = 'resize-selected'
+      if (key === 'ArrowRight') payload = `w:${step}`
+      else if (key === 'ArrowLeft') payload = `w:${-step}`
+      else if (key === 'ArrowDown') payload = `h:${step}`
+      else payload = `h:${-step}`
     }
     // 일반 키 처리
     else if (KEY_BINDINGS[key]) {
@@ -191,15 +219,15 @@ export function createKeyboardManager() {
       // 등록된 핸들러 실행
       const handlers = actionHandlers.get(action)
       if (handlers) {
-        handlers.forEach((handler) => handler())
+        handlers.forEach((handler) => handler(payload))
       }
     }
   }
 
   /**
-   * 액션 핸들러 등록
+   * 액션 핸들러 등록. handler는 선택적으로 payload를 받을 수 있다 (예: select-class의 디지트).
    */
-  function onAction(action: KeyboardAction, handler: () => void) {
+  function onAction(action: KeyboardAction, handler: (payload?: string) => void) {
     if (!actionHandlers.has(action)) {
       // eslint-disable-next-line svelte/prefer-svelte-reactivity
       actionHandlers.set(action, new Set())

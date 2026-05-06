@@ -4,6 +4,7 @@
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
   import { TOOL_MANAGER_KEY, type ToolManager } from '$lib/stores/toolManager.svelte.js'
   import { KEYBOARD_MANAGER_KEY, type KeyboardManager } from '$lib/stores/keyboardManager.svelte.js'
+  import { MODE_MANAGER_KEY, type ModeManager } from '$lib/stores/modeManager.svelte.js'
 
   import { Slider } from '$lib/components/ui/slider/index.js'
   import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip/index.js'
@@ -27,6 +28,8 @@
     handleMouseMove,
     handleMouseUp,
     updateCursorForTool,
+    commitPolygonDraft,
+    cancelPolygonDraft,
     type MouseHandlerContext,
     type MouseHandlerState
   } from '$lib/canvas/interaction/mouseHandlers.js'
@@ -37,6 +40,7 @@
     updateAllBoxPositions,
     renderLabels,
     syncLabelChanges,
+    applyModeLocksToAll,
     type CanvasLabelObjects
   } from '$lib/canvas/labels/labelManager.js'
   import { applySelectedStyle } from '$lib/canvas/styles/boxStyles.js'
@@ -44,6 +48,7 @@
   const workspaceManager = getSvelteContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
   const toolManager = getSvelteContext<ToolManager>(TOOL_MANAGER_KEY)
   const keyboardManager = getSvelteContext<KeyboardManager>(KEYBOARD_MANAGER_KEY)
+  const modeManager = getSvelteContext<ModeManager>(MODE_MANAGER_KEY)
 
   let canvasEl: HTMLCanvasElement
   let canvasContainer: HTMLDivElement
@@ -57,7 +62,11 @@
     isDrawing: false,
     startX: 0,
     startY: 0,
-    currentClassId: 0
+    currentClassId: 0,
+    polygonPoints: [],
+    polygonPreviewLine: null,
+    polygonVertexMarkers: [],
+    polygonLines: []
   }
 
   // 라벨 박스 맵 (labelId -> render objects)
@@ -125,6 +134,12 @@
       onMouseUp: (opt) => {
         handleMouseUp(opt, getMouseHandlerContext(), mouseHandlerState)
       },
+      onMouseDblClick: () => {
+        // Polygon 도구에서 더블클릭으로 그리기 종료
+        if (toolManager.currentTool === 'polygon') {
+          commitPolygonDraft(getMouseHandlerContext(), mouseHandlerState)
+        }
+      },
       onSelectionCleared: () => workspaceManager.setSelectedLabelId(null)
     })
 
@@ -140,7 +155,8 @@
       fabricCanvas: fabricCanvas!,
       imageObject: currentImageObject!,
       workspaceManager,
-      toolManager
+      toolManager,
+      appMode: modeManager.current
     }
   }
 
@@ -218,15 +234,10 @@
   // ============================================
   // 클래스 선택 헬퍼
   // ============================================
-  function selectAdjacentClass(direction: -1 | 1): void {
+  function selectClassByIndex(index: number): void {
     const classes = workspaceManager.classList
-    if (classes.length === 0) return
-
-    const currentIndex = classes.findIndex((cls) => cls.id === workspaceManager.selectedClassId)
-    const safeIndex = currentIndex >= 0 ? currentIndex : 0
-    const nextIndex = (safeIndex + direction + classes.length) % classes.length
-
-    workspaceManager.setSelectedClassId(classes[nextIndex].id)
+    if (index < 0 || index >= classes.length) return
+    workspaceManager.setSelectedClassId(classes[index].id)
   }
 
   // ============================================
@@ -243,6 +254,18 @@
   $effect(() => {
     if (fabricCanvas && isInitialized) {
       updateCursorForTool(fabricCanvas, toolManager, labelBoxes)
+    }
+  })
+
+  // 모드 변경 시 모든 라벨 박스 잠금 상태 재적용 (Check = resize-only)
+  $effect(() => {
+    const mode = modeManager.current
+    if (!fabricCanvas || !isInitialized) return
+    applyModeLocksToAll(fabricCanvas, labelBoxes, mode)
+    // Check 모드 진입 시 활성 선택 해제 (이동 가능 상태가 잔존하지 않도록)
+    if (mode !== 'edit') {
+      fabricCanvas.discardActiveObject()
+      fabricCanvas.requestRenderAll()
     }
   })
 
@@ -377,21 +400,20 @@
     )
 
     cleanupHandlers.push(
-      keyboardManager.onAction('prev-class', () => {
-        selectAdjacentClass(-1)
-        console.log('Previous class selected:', workspaceManager.selectedClassId)
-      })
-    )
-
-    cleanupHandlers.push(
-      keyboardManager.onAction('next-class', () => {
-        selectAdjacentClass(1)
-        console.log('Next class selected:', workspaceManager.selectedClassId)
+      keyboardManager.onAction('select-class', (payload) => {
+        // Edit 모드에서만 클래스 변경 허용
+        if (modeManager.current !== 'edit') return
+        if (!payload) return
+        const digit = parseInt(payload, 10)
+        if (Number.isNaN(digit)) return
+        selectClassByIndex(digit - 1)
       })
     )
 
     cleanupHandlers.push(
       keyboardManager.onAction('delete', () => {
+        // Check / Preview 모드에서는 삭제 차단
+        if (modeManager.current !== 'edit') return
         const n = workspaceManager.deleteSelectedLabels()
         if (n > 0) console.log(`${n}개 라벨 삭제`)
       })
@@ -425,6 +447,7 @@
 
     cleanupHandlers.push(
       keyboardManager.onAction('copy', () => {
+        // Check 모드에서도 복사는 허용 (붙여넣기만 Edit 전용)
         const n = workspaceManager.copySelectedLabels()
         if (n > 0) console.log(`[Clipboard] ${n}개 복사`)
       })
@@ -432,10 +455,64 @@
 
     cleanupHandlers.push(
       keyboardManager.onAction('paste', () => {
+        if (modeManager.current !== 'edit') return
         const n = workspaceManager.pasteClipboard()
         if (n > 0) console.log(`[Clipboard] ${n}개 붙여넣기`)
       })
     )
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('replicate-prev', () => {
+        if (modeManager.current !== 'edit') return
+        void workspaceManager.replicatePreviousImageLabels().then((n) => {
+          if (n > 0) console.log(`[Replicate] 직전 이미지 ${n}개 복제`)
+        })
+      })
+    )
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('toggle-complete', () => {
+        void workspaceManager.toggleCurrentCompletion().then(async (ok) => {
+          if (!ok) return
+          // Review 모드일 때는 자동으로 다음 이미지로 이동
+          if (modeManager.current === 'check') {
+            await workspaceManager.nextImage()
+          }
+        })
+      })
+    )
+
+    cleanupHandlers.push(
+      keyboardManager.onAction('resize-selected', (payload) => {
+        // 키보드 크기 조절은 Check 모드에서만 (Edit는 마우스/일반 흐름이 충분)
+        if (modeManager.current !== 'check') return
+        if (!payload) return
+        const m = payload.match(/^(w|h):(-?\d+)$/)
+        if (!m) return
+        const axis = m[1] as 'w' | 'h'
+        const delta = parseInt(m[2], 10)
+        if (!Number.isFinite(delta) || delta === 0) return
+        workspaceManager.resizeSelectedBox(axis, delta)
+      })
+    )
+
+    // Polygon 그리기 — Enter로 닫기, ESC로 취소 (window 리스너)
+    const polygonKeyListener = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+      if (toolManager.currentTool !== 'polygon') return
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        commitPolygonDraft(getMouseHandlerContext(), mouseHandlerState)
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelPolygonDraft(getMouseHandlerContext(), mouseHandlerState)
+      }
+    }
+    window.addEventListener('keydown', polygonKeyListener)
+    cleanupHandlers.push(() => window.removeEventListener('keydown', polygonKeyListener))
 
     // 워크스페이스가 열려있으면 이미지 로드
     if (workspaceManager.currentImage) {
