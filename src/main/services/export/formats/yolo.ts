@@ -83,7 +83,17 @@ export async function exportYoloDataset(
       // 라벨 파일 생성
       const lines: string[] = []
       for (const annotation of item.labelData.annotations) {
-        const line = formatYoloLabel(annotation, item.labelData.image_info, resized, outOfBounds)
+        // YOLO BB는 BBAnnotation/OBBAnnotation만 처리
+        if (!('bbox' in annotation) && !('obb' in annotation)) continue
+        if ('keypoints' in annotation) continue
+        const line = formatYoloLabel(
+          annotation as
+            | import('../../../../shared/types.js').BBAnnotation
+            | import('../../../../shared/types.js').OBBAnnotation,
+          item.labelData.image_info,
+          resized,
+          outOfBounds
+        )
         if (line) {
           lines.push(line)
         }

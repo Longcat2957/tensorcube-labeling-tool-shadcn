@@ -2,7 +2,7 @@
  * Export 관련 타입 정의
  */
 
-import type { BBAnnotation, OBBAnnotation } from '../../../shared/types.js'
+import type { AnyAnnotation } from '../../../shared/types.js'
 
 // 내보내기 가능한 아이템
 export interface ExportableItem {
@@ -15,7 +15,7 @@ export interface ExportableItem {
       width: number
       height: number
     }
-    annotations: (BBAnnotation | OBBAnnotation)[]
+    annotations: AnyAnnotation[]
   }
   split: 'train' | 'val' | 'test'
 }

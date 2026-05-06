@@ -7,7 +7,7 @@
  * - 스크린 변환은 렌더링 시에만 수행
  */
 
-import { Rect } from 'fabric'
+import { Rect, Polyline, Circle, Point } from 'fabric'
 import type { Canvas, FabricImage, Object as FabricObject } from 'fabric'
 import type { WorkspaceManager } from '../../stores/workspace.svelte.js'
 import type { ToolManager } from '../../stores/toolManager.svelte.js'
@@ -34,6 +34,28 @@ export interface MouseHandlerState {
   startX: number
   startY: number
   currentClassId: number
+
+  // Polygon 그리기 상태
+  polygonPoints: [number, number][] // 이미지 좌표
+  polygonPreviewLine: FabricObject | null // 마우스 따라가는 점선
+  polygonVertexMarkers: FabricObject[] // 정점 시각화 (작은 원)
+  polygonLines: FabricObject[] // 정점 연결 선
+}
+
+/** Polygon 그리기 마무리(close)에 필요한 최소 정점 수 */
+export const POLYGON_MIN_VERTICES = 3
+
+/** 그리기 도중 사용한 prework 객체들을 캔버스에서 제거 */
+export function clearPolygonDraftObjects(fabricCanvas: Canvas, state: MouseHandlerState): void {
+  if (state.polygonPreviewLine) {
+    fabricCanvas.remove(state.polygonPreviewLine)
+    state.polygonPreviewLine = null
+  }
+  for (const m of state.polygonVertexMarkers) fabricCanvas.remove(m)
+  state.polygonVertexMarkers = []
+  for (const l of state.polygonLines) fabricCanvas.remove(l)
+  state.polygonLines = []
+  state.polygonPoints = []
 }
 
 // ============================================
@@ -93,7 +115,144 @@ export function applyDrawModifiers(
 // ============================================
 
 /**
- * 마우스 다운 이벤트 - 박스 드로잉 시작
+ * Polygon 그리기 — 클릭으로 정점 추가.
+ * 더블 클릭은 별도 이벤트(handlePolygonDoubleClick)로 닫힘 처리.
+ */
+function handlePolygonClick(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): void {
+  const { fabricCanvas, imageObject, workspaceManager } = context
+  if (!imageObject) return
+
+  const scale = imageObject.scaleX || 1
+  const offset = getImageOffset(imageObject)
+  const pointer = fabricCanvas.getScenePoint(e.e)
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y)
+
+  // 첫 정점이면 클래스 ID 잠금
+  if (state.polygonPoints.length === 0) {
+    state.currentClassId = workspaceManager.selectedClassId ?? 0
+  }
+
+  state.polygonPoints.push([imageCoords.x, imageCoords.y])
+  const color = getClassColor(state.currentClassId)
+
+  // 정점 마커 (작은 원)
+  const marker = new Circle({
+    left: pointer.x,
+    top: pointer.y,
+    radius: 4,
+    originX: 'center',
+    originY: 'center',
+    fill: '#ffffff',
+    stroke: color,
+    strokeWidth: 2,
+    selectable: false,
+    evented: false
+  })
+  fabricCanvas.add(marker)
+  state.polygonVertexMarkers.push(marker)
+
+  // 이전 정점과 잇는 선
+  if (state.polygonPoints.length >= 2) {
+    const prev = state.polygonPoints[state.polygonPoints.length - 2]
+    const line = new Polyline(
+      [
+        { x: prev[0] * scale + offset.x, y: prev[1] * scale + offset.y },
+        { x: pointer.x, y: pointer.y }
+      ],
+      {
+        stroke: color,
+        strokeWidth: BOX_STYLE.strokeWidth,
+        fill: '',
+        selectable: false,
+        evented: false
+      }
+    )
+    fabricCanvas.add(line)
+    state.polygonLines.push(line)
+  }
+
+  fabricCanvas.requestRenderAll()
+}
+
+/**
+ * Polygon 그리기 종료 (더블 클릭 또는 Enter).
+ * 최소 3개 정점이 있어야 어노테이션으로 추가된다.
+ */
+export function commitPolygonDraft(
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): boolean {
+  const { fabricCanvas, workspaceManager } = context
+  if (state.polygonPoints.length < POLYGON_MIN_VERTICES) {
+    clearPolygonDraftObjects(fabricCanvas, state)
+    fabricCanvas.requestRenderAll()
+    return false
+  }
+
+  const id = crypto.randomUUID()
+  workspaceManager.addPolygonAnnotation({
+    id,
+    class_id: state.currentClassId,
+    polygon: state.polygonPoints.slice() as [number, number][]
+  })
+
+  clearPolygonDraftObjects(fabricCanvas, state)
+  fabricCanvas.requestRenderAll()
+  return true
+}
+
+/** Polygon 그리기 취소 (ESC) */
+export function cancelPolygonDraft(context: MouseHandlerContext, state: MouseHandlerState): void {
+  clearPolygonDraftObjects(context.fabricCanvas, state)
+  context.fabricCanvas.requestRenderAll()
+}
+
+/** Polygon 그리는 중 마우스 이동 — 점선 미리보기 갱신 */
+function handlePolygonMove(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): void {
+  if (state.polygonPoints.length === 0) return
+  const { fabricCanvas, imageObject } = context
+  if (!imageObject) return
+
+  const scale = imageObject.scaleX || 1
+  const offset = getImageOffset(imageObject)
+  const pointer = fabricCanvas.getScenePoint(e.e)
+  const last = state.polygonPoints[state.polygonPoints.length - 1]
+  const color = getClassColor(state.currentClassId)
+
+  if (state.polygonPreviewLine) {
+    fabricCanvas.remove(state.polygonPreviewLine)
+  }
+  // void Point — Fabric Polyline은 Point를 사용
+  void Point
+  const preview = new Polyline(
+    [
+      { x: last[0] * scale + offset.x, y: last[1] * scale + offset.y },
+      { x: pointer.x, y: pointer.y }
+    ],
+    {
+      stroke: color,
+      strokeWidth: BOX_STYLE.strokeWidth,
+      strokeDashArray: [4, 4],
+      fill: '',
+      selectable: false,
+      evented: false
+    }
+  )
+  state.polygonPreviewLine = preview
+  fabricCanvas.add(preview)
+  fabricCanvas.requestRenderAll()
+}
+
+/**
+ * 마우스 다운 이벤트 - 박스 또는 Polygon 드로잉 시작
  */
 export function handleMouseDown(
   e: { e: MouseEvent },
@@ -101,6 +260,13 @@ export function handleMouseDown(
   state: MouseHandlerState
 ): void {
   const { fabricCanvas, imageObject, toolManager, drawingBox, workspaceManager } = context
+
+  // Polygon 도구
+  if (toolManager.currentTool === 'polygon') {
+    if (!imageObject) return
+    handlePolygonClick(e, context, state)
+    return
+  }
 
   // 박스 도구가 아니면 무시
   if (toolManager.currentTool !== 'box') return
@@ -154,14 +320,20 @@ export function handleMouseDown(
 }
 
 /**
- * 마우스 무브 이벤트 - 박스 드로잉 업데이트
+ * 마우스 무브 이벤트 - 박스 또는 Polygon 드로잉 업데이트
  */
 export function handleMouseMove(
   e: { e: MouseEvent },
   context: MouseHandlerContext,
   state: MouseHandlerState
 ): void {
-  const { fabricCanvas, imageObject, drawingBox } = context
+  const { fabricCanvas, imageObject, drawingBox, toolManager } = context
+
+  // Polygon 도구는 정점이 1개 이상 있을 때만 미리보기 선 업데이트
+  if (toolManager.currentTool === 'polygon') {
+    handlePolygonMove(e, context, state)
+    return
+  }
 
   if (!state.isDrawing || !drawingBox.value || !imageObject) return
 
@@ -330,7 +502,7 @@ export function updateCursorForTool(
   if (currentTool === 'pan') {
     fabricCanvas.defaultCursor = 'grab'
     fabricCanvas.hoverCursor = 'grab'
-  } else if (currentTool === 'box') {
+  } else if (currentTool === 'box' || currentTool === 'polygon') {
     fabricCanvas.defaultCursor = 'crosshair'
     fabricCanvas.hoverCursor = 'crosshair'
   } else {

@@ -54,6 +54,7 @@
   let valRatio = $state(10)
   let testRatio = $state(10)
   let includeCompletedOnly = $state(false)
+  let requireAnnotations = $state(false)
   let outOfBounds = $state<'clip' | 'skip' | 'none'>('clip')
   let exporting = $state(false)
   let exportName = $state('')
@@ -113,6 +114,7 @@
     try {
       const result = await window.api.workspace.exportPreflight(workspaceManager.workspacePath, {
         includeCompletedOnly,
+        requireAnnotations,
         outOfBounds,
         split: { train: trainRatio, val: valRatio, test: testRatio }
       })
@@ -136,6 +138,7 @@
       outputPath: pendingOutputPath,
       exportName,
       includeCompletedOnly,
+      requireAnnotations,
       resize: {
         enabled: resizeEnabled,
         width: resizeWidth,
@@ -287,6 +290,22 @@
         </div>
         <p class="text-xs text-muted-foreground">
           활성화하면 <code>_C.json</code> 상태만 내보냅니다. 비활성화하면 작업 중 라벨도 포함합니다.
+        </p>
+
+        <div class="flex items-center justify-between pt-2">
+          <Label>라벨 있는 이미지만</Label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              bind:checked={requireAnnotations}
+              class="size-4 rounded border-input"
+            />
+            <span class="text-sm text-muted-foreground">강제 적용</span>
+          </label>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          활성화하면 어노테이션이 1개 이상 있는 이미지만 내보냅니다. 검수 완료 여부와 독립적으로
+          동작합니다.
         </p>
       </div>
 

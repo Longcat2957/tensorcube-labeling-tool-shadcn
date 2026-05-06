@@ -66,10 +66,19 @@ export async function exportDotaDataset(
     // 이미지 복사/리사이즈
     const resized = await writeExportImage(item.imagePath, imageOutPath, options.resize)
 
-    // 라벨 파일 생성
+    // 라벨 파일 생성 (DOTA는 BB/OBB만)
     const lines: string[] = []
     for (const annotation of item.labelData.annotations) {
-      const line = formatDotaLabel(annotation, item.labelData.image_info, resized, outOfBounds)
+      if (!('bbox' in annotation) && !('obb' in annotation)) continue
+      if ('keypoints' in annotation) continue
+      const line = formatDotaLabel(
+        annotation as
+          | import('../../../../shared/types.js').BBAnnotation
+          | import('../../../../shared/types.js').OBBAnnotation,
+        item.labelData.image_info,
+        resized,
+        outOfBounds
+      )
       if (line) {
         lines.push(line)
       }

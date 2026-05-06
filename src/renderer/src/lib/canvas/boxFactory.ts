@@ -9,7 +9,7 @@
  */
 
 import { Rect, Text } from 'fabric'
-import type { BBAnnotation, OBBAnnotation } from '../stores/workspace.svelte.js'
+import type { BBAnnotation, OBBAnnotation, PolygonAnnotation } from '../stores/workspace.svelte.js'
 import { bboxToScreen, obbToScreen } from './coordinates.js'
 import {
   getClassColor,
@@ -141,7 +141,7 @@ export function createOBBRect(
  * bbox의 left-top point 위쪽에 표시
  */
 export function createLabelBadge(
-  annotation: BBAnnotation | OBBAnnotation,
+  annotation: BBAnnotation | OBBAnnotation | PolygonAnnotation,
   className: string,
   scale: number,
   offsetX: number,
@@ -152,11 +152,21 @@ export function createLabelBadge(
   // 좌표 계산 - bbox의 left-top point 사용
   let leftX: number, topY: number
 
-  if ('bbox' in annotation) {
+  if ('bbox' in annotation && Array.isArray(annotation.bbox)) {
     // BB: left-top point
     leftX = annotation.bbox[0] // xmin
     topY = annotation.bbox[1] // ymin
-  } else {
+  } else if ('polygon' in annotation) {
+    // Polygon: AABB의 left-top
+    const pts = annotation.polygon
+    if (pts.length === 0) {
+      leftX = 0
+      topY = 0
+    } else {
+      leftX = Math.min(...pts.map((p) => p[0]))
+      topY = Math.min(...pts.map((p) => p[1]))
+    }
+  } else if ('obb' in annotation) {
     // OBB: 4코너 중 화면상 가장 위쪽(topmost) 코너 찾기
     const [cx, cy, w, h, angle] = annotation.obb
     const rad = (angle * Math.PI) / 180
@@ -174,6 +184,9 @@ export function createLabelBadge(
     const topmost = corners.reduce((a, b) => (a.y < b.y ? a : b))
     leftX = topmost.x
     topY = topmost.y
+  } else {
+    leftX = 0
+    topY = 0
   }
 
   const bs = badgeScale(scale)

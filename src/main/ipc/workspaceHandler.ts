@@ -14,6 +14,21 @@ import {
   pushRecentWorkspace,
   removeRecentWorkspace
 } from '../services/recentWorkspaces.js'
+import {
+  createSnapshot,
+  listSnapshots,
+  deleteSnapshot,
+  restoreSnapshot
+} from '../services/utilities/snapshot.js'
+import {
+  runIntegrityCheck,
+  autoFixIssues,
+  type IntegrityIssue
+} from '../services/utilities/integrityCheck.js'
+import { computeWorkspaceStats } from '../services/workspaceStats.js'
+import { ensureThumbnailById } from '../services/thumbnails.js'
+import { runValidation } from '../services/validation.js'
+import type { ValidationRules } from '../../shared/types.js'
 import type {
   CreateWorkspaceOptions,
   ExportOptions,
@@ -78,7 +93,10 @@ export function registerWorkspaceHandlers(): void {
     async (
       _event,
       workspacePath: string,
-      options: Pick<ExportOptions, 'includeCompletedOnly' | 'outOfBounds' | 'split'>
+      options: Pick<
+        ExportOptions,
+        'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'split'
+      >
     ) => {
       return await previewExport(workspacePath, options)
     }
@@ -92,6 +110,53 @@ export function registerWorkspaceHandlers(): void {
     'workspace:reassignClass',
     async (_event, workspacePath: string, fromClassId: number, toClassId: number | null) => {
       return await reassignClass(workspacePath, fromClassId, toClassId)
+    }
+  )
+
+  // Snapshot / 백업
+  ipcMain.handle('workspace:createSnapshot', async (_event, workspacePath: string) => {
+    return await createSnapshot(workspacePath)
+  })
+
+  ipcMain.handle('workspace:listSnapshots', async (_event, workspacePath: string) => {
+    return await listSnapshots(workspacePath)
+  })
+
+  ipcMain.handle('workspace:deleteSnapshot', async (_event, workspacePath: string, id: string) => {
+    return await deleteSnapshot(workspacePath, id)
+  })
+
+  ipcMain.handle('workspace:restoreSnapshot', async (_event, workspacePath: string, id: string) => {
+    return await restoreSnapshot(workspacePath, id)
+  })
+
+  // 무결성 검사
+  ipcMain.handle('workspace:integrityCheck', async (_event, workspacePath: string) => {
+    return await runIntegrityCheck(workspacePath)
+  })
+
+  ipcMain.handle(
+    'workspace:integrityAutoFix',
+    async (_event, workspacePath: string, issues: IntegrityIssue[]) => {
+      return await autoFixIssues(workspacePath, issues)
+    }
+  )
+
+  ipcMain.handle('workspace:computeStats', async (_event, workspacePath: string) => {
+    return await computeWorkspaceStats(workspacePath)
+  })
+
+  ipcMain.handle(
+    'workspace:ensureThumbnail',
+    async (_event, workspacePath: string, imageId: string) => {
+      return await ensureThumbnailById(workspacePath, imageId)
+    }
+  )
+
+  ipcMain.handle(
+    'workspace:runValidation',
+    async (_event, workspacePath: string, rules: ValidationRules) => {
+      return await runValidation(workspacePath, rules)
     }
   )
 }

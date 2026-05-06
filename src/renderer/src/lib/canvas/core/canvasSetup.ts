@@ -16,6 +16,7 @@ export interface CanvasEventHandlers {
   onMouseMove: (opt: any) => void
   onMouseUp: (opt: any) => void
   onSelectionCleared: () => void
+  onMouseDblClick?: (opt: any) => void
 }
 
 /**
@@ -43,6 +44,9 @@ export function registerCanvasEvents(fabricCanvas: Canvas, handlers: CanvasEvent
   fabricCanvas.on('mouse:move', handlers.onMouseMove)
   fabricCanvas.on('mouse:up', handlers.onMouseUp)
   fabricCanvas.on('selection:cleared', handlers.onSelectionCleared)
+  if (handlers.onMouseDblClick) {
+    fabricCanvas.on('mouse:dblclick', handlers.onMouseDblClick)
+  }
 }
 
 /**

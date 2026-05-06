@@ -8,12 +8,14 @@
 export type ToolType =
   | 'select' // 선택/이동 도구 (V)
   | 'box' // 박스 생성 도구 (B)
+  | 'polygon' // Polygon 생성 도구 (Polygon 모드 전용)
   | 'pan' // 패닝 도구
 
 // 도구별 커서 매핑
 const TOOL_CURSORS: Record<ToolType, string> = {
   select: 'default',
   box: 'crosshair',
+  polygon: 'crosshair',
   pan: 'grab'
 }
 
@@ -21,6 +23,7 @@ const TOOL_CURSORS: Record<ToolType, string> = {
 export const TOOL_DESCRIPTIONS: Record<ToolType, string> = {
   select: '선택 도구',
   box: '박스 생성 도구',
+  polygon: 'Polygon 생성 도구',
   pan: '이동 도구'
 }
 

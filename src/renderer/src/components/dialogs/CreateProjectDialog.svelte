@@ -20,6 +20,7 @@
   let nextSourceFolderId = $state(1)
   let savePath = $state('')
   let labelingType = $state('1')
+  let keypointNames = $state('') // comma-separated keypoint 이름
   let classes = $state([{ id: 0, name: '' }])
   let nextClassId = $state(1)
   let isCreating = $state(false)
@@ -75,12 +76,22 @@
 
     isCreating = true
 
+    const lt = parseInt(labelingType) as 1 | 2 | 3 | 4
     const result = await window.api.workspace.create({
       name: workspaceName.trim(),
       sourceFolders: sourceFolders.map((f) => f.path),
       savePath,
-      labelingType: parseInt(labelingType) as 1 | 2,
-      classes: classes.map((c) => ({ id: c.id, name: c.name.trim() }))
+      labelingType: lt,
+      classes: classes.map((c) => ({ id: c.id, name: c.name.trim() })),
+      keypointSchema:
+        lt === 4 && keypointNames.trim()
+          ? {
+              names: keypointNames
+                .split(',')
+                .map((n) => n.trim())
+                .filter((n) => n.length > 0)
+            }
+          : undefined
     })
 
     isCreating = false
@@ -102,6 +113,7 @@
     nextSourceFolderId = 1
     savePath = ''
     labelingType = '1'
+    keypointNames = ''
     classes = [{ id: 0, name: '' }]
     nextClassId = 1
   }
@@ -203,7 +215,27 @@
             <RadioGroupItem value="2" id="type-obb" />
             <Label for="type-obb" class="font-normal">Oriented Bounding Box (OBB)</Label>
           </div>
+          <div class="flex items-center space-x-2">
+            <RadioGroupItem value="3" id="type-poly" />
+            <Label for="type-poly" class="font-normal">Polygon (segmentation)</Label>
+          </div>
+          <div class="flex items-center space-x-2">
+            <RadioGroupItem value="4" id="type-kp" />
+            <Label for="type-kp" class="font-normal">Keypoint</Label>
+          </div>
         </RadioGroup>
+        {#if labelingType === '4'}
+          <div class="pt-2 space-y-1">
+            <Label for="kp-names" class="text-xs">Keypoint 이름 (쉼표 구분)</Label>
+            <input
+              id="kp-names"
+              type="text"
+              bind:value={keypointNames}
+              placeholder="nose, left_eye, right_eye, ..."
+              class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+        {/if}
       </div>
 
       <!-- 클래스 정의 -->

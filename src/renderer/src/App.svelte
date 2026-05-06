@@ -7,8 +7,10 @@
   import Footer from './components/Footer.svelte'
   import OpenWorkspaceDialog from './components/dialogs/OpenWorkspaceDialog.svelte'
   import CreateProjectDialog from './components/dialogs/CreateProjectDialog.svelte'
+  import ToolsDialog from './components/dialogs/ToolsDialog.svelte'
   import RecentWorkspaces from './components/RecentWorkspaces.svelte'
   import Dashboard from './components/Dashboard.svelte'
+  import ThumbnailGrid from './components/ThumbnailGrid.svelte'
   import ImageListPanel from './components/ImageListPanel.svelte'
   import * as Resizable from '$lib/components/ui/resizable/index.js'
   import { TooltipProvider } from '$lib/components/ui/tooltip/index.js'
@@ -75,7 +77,11 @@
             </Resizable.Pane>
             <Resizable.Handle />
             <Resizable.Pane>
-              <CanvasArea />
+              {#if workspaceManager.gridViewActive}
+                <ThumbnailGrid />
+              {:else}
+                <CanvasArea />
+              {/if}
             </Resizable.Pane>
             <Resizable.Handle />
             <Resizable.Pane defaultSize={15} minSize={5} maxSize={40}>
@@ -107,7 +113,17 @@
                 새 프로젝트 생성
               </button>
             </CreateProjectDialog>
+            <ToolsDialog>
+              <button
+                class="px-4 py-2 border border-input bg-background rounded-md hover:bg-accent hover:text-accent-foreground"
+              >
+                데이터 준비 도구
+              </button>
+            </ToolsDialog>
           </div>
+          <p class="text-xs text-muted-foreground">
+            데이터 준비 도구는 워크스페이스 없이도 사용할 수 있습니다.
+          </p>
           <RecentWorkspaces />
         </div>
       </div>

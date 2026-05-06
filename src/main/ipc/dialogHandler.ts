@@ -55,4 +55,24 @@ export function registerDialogHandlers(): void {
 
     return result.filePaths[0]
   })
+
+  ipcMain.handle('dialog:selectVideoFile', async () => {
+    const result = await dialog.showOpenDialog(BrowserWindow.getFocusedWindow()!, {
+      properties: ['openFile'],
+      title: '비디오 파일 선택',
+      filters: [
+        {
+          name: 'Video',
+          extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'flv', 'wmv', 'mpg', 'mpeg']
+        },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    return result.filePaths[0]
+  })
 }

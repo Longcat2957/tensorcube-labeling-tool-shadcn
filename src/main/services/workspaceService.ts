@@ -20,11 +20,51 @@ import type {
   ImageInfo,
   LabelData
 } from '../../shared/types.js'
+import { LABEL_SCHEMA_VERSION } from '../../shared/types.js'
 
 const SRC_DIR = 'src'
 const LABEL_DIR = 'label'
-const WORKSPACE_FILE = 'workspace.yaml'
+export const WORKSPACE_FILE = 'workspace.yaml'
 const WORKSPACE_CREATE_CONCURRENCY = 8
+
+/**
+ * 워크스페이스 YAML 읽기 (keypoint_schema 디코드 포함).
+ * 디스크에는 nested 객체 대신 단일 행 `keypoint_schema_json: '...'` 으로 저장된다.
+ * 하위 호환: 기존 nested 형식이 있으면 그대로 사용.
+ */
+export async function readWorkspaceConfig(yamlPath: string): Promise<WorkspaceConfig | null> {
+  const raw = await readYamlFile<Record<string, unknown>>(yamlPath)
+  if (!raw) return null
+  const out: Record<string, unknown> = { ...raw }
+  if (typeof raw.keypoint_schema_json === 'string') {
+    try {
+      out.keypoint_schema = JSON.parse(raw.keypoint_schema_json)
+    } catch {
+      // 손상된 schema는 무시
+    }
+    delete out.keypoint_schema_json
+  }
+  return out as unknown as WorkspaceConfig
+}
+
+/**
+ * 워크스페이스 YAML 쓰기 (keypoint_schema 인코드 포함).
+ * 간이 YAML 직렬화기가 nested array를 지원하지 않으므로
+ * keypoint_schema는 JSON-encoded inline 문자열로 저장한다.
+ */
+export async function writeWorkspaceConfig(
+  yamlPath: string,
+  config: WorkspaceConfig
+): Promise<void> {
+  const serializable: Record<string, unknown> = {
+    ...(config as unknown as Record<string, unknown>)
+  }
+  if (config.keypoint_schema) {
+    serializable.keypoint_schema_json = JSON.stringify(config.keypoint_schema)
+  }
+  delete serializable.keypoint_schema
+  await writeYamlFile(yamlPath, serializable)
+}
 
 /**
  * 인덱스 기반 병렬 실행 유틸
@@ -54,7 +94,7 @@ export async function createWorkspace(
   options: CreateWorkspaceOptions
 ): Promise<{ success: boolean; path?: string; error?: string }> {
   try {
-    const { name, sourceFolders, savePath, labelingType, classes } = options
+    const { name, sourceFolders, savePath, labelingType, classes, keypointSchema } = options
 
     // 워크스페이스 루트 경로
     const workspacePath = join(savePath, name)
@@ -108,24 +148,24 @@ export async function createWorkspace(
       names,
       image_count: imageCount,
       created_at: getCurrentDateString(),
-      last_modified_at: getCurrentDateString()
+      last_modified_at: getCurrentDateString(),
+      ...(labelingType === 4 && keypointSchema ? { keypoint_schema: keypointSchema } : {})
     }
 
-    await writeYamlFile(
-      join(workspacePath, WORKSPACE_FILE),
-      config as unknown as Record<string, unknown>
-    )
+    await writeWorkspaceConfig(join(workspacePath, WORKSPACE_FILE), config)
 
     // 빈 라벨 파일들 생성 (실제 이미지 크기 포함) — 병렬
     await runWithConcurrency(imageData, WORKSPACE_CREATE_CONCURRENCY, async (img) => {
       const labelPath = join(workspacePath, LABEL_DIR, `${img.id}.json`)
       const emptyLabelData: LabelData = {
+        version: LABEL_SCHEMA_VERSION,
         image_info: {
           filename: img.filename,
           width: img.width,
           height: img.height
         },
-        annotations: []
+        annotations: [],
+        tags: []
       }
       await writeJsonFile(labelPath, emptyLabelData)
     })
@@ -147,7 +187,7 @@ export async function openWorkspace(
       return { success: false, error: 'workspace.yaml 파일이 없습니다.' }
     }
 
-    const config = await readYamlFile<WorkspaceConfig>(yamlPath)
+    const config = await readWorkspaceConfig(yamlPath)
 
     if (!config) {
       return { success: false, error: 'workspace.yaml 파싱에 실패했습니다.' }
@@ -171,7 +211,7 @@ export async function updateWorkspace(
       return { success: false, error: 'workspace.yaml 파일이 없습니다.' }
     }
 
-    const currentConfig = await readYamlFile<WorkspaceConfig>(yamlPath)
+    const currentConfig = await readWorkspaceConfig(yamlPath)
 
     if (!currentConfig) {
       return { success: false, error: 'workspace.yaml 파싱에 실패했습니다.' }
@@ -187,10 +227,14 @@ export async function updateWorkspace(
       workspace: options.workspace,
       labeling_type: options.labelingType,
       names,
-      last_modified_at: getCurrentDateString()
+      last_modified_at: getCurrentDateString(),
+      // labeling_type이 4면 keypoint_schema 보장. 다른 타입으로 전환 시 schema 제거.
+      ...(options.labelingType === 4
+        ? { keypoint_schema: options.keypointSchema ?? currentConfig.keypoint_schema }
+        : { keypoint_schema: undefined })
     }
 
-    await writeYamlFile(yamlPath, updatedConfig as unknown as Record<string, unknown>)
+    await writeWorkspaceConfig(yamlPath, updatedConfig)
 
     return { success: true, config: updatedConfig }
   } catch (error) {
@@ -207,15 +251,26 @@ export async function getWorkspaceInfo(workspacePath: string): Promise<Workspace
       return null
     }
 
-    const config = await readYamlFile<WorkspaceConfig>(yamlPath)
+    const config = await readWorkspaceConfig(yamlPath)
 
     if (!config) {
       return null
     }
 
+    const labelingTypeLabel =
+      config.labeling_type === 1
+        ? 'BB'
+        : config.labeling_type === 2
+          ? 'OBB'
+          : config.labeling_type === 3
+            ? 'Polygon'
+            : config.labeling_type === 4
+              ? 'Keypoint'
+              : 'Unknown'
+
     return {
       name: config.workspace,
-      labelingType: config.labeling_type === 1 ? 'BB' : 'OBB',
+      labelingType: labelingTypeLabel,
       imageCount: config.image_count,
       lastModified: config.last_modified_at,
       path: workspacePath
@@ -309,8 +364,11 @@ export async function readLabelData(
 
   for (const path of paths) {
     if (existsSync(path)) {
-      const data = await readJsonFile<LabelData>(path)
-      return data
+      const raw = await readJsonFile<unknown>(path)
+      if (raw === null) return null
+      // v1 → v2 자동 마이그레이션
+      const { migrateToV2 } = await import('./labelMigration.js')
+      return migrateToV2(raw)
     }
   }
 
@@ -341,17 +399,18 @@ export async function saveLabelData(
       }
     }
 
-    // 새 파일 저장
+    // 새 파일 저장 (v2로 정규화)
+    const { normalizeForSave } = await import('./labelMigration.js')
     const suffix = completed ? '_C' : '_W'
     const newPath = join(labelPath, `${imageId}${suffix}.json`)
-    await writeJsonFile(newPath, data)
+    await writeJsonFile(newPath, normalizeForSave(data))
 
     // workspace.yaml 수정일 업데이트
     const yamlPath = join(workspacePath, WORKSPACE_FILE)
-    const config = await readYamlFile<WorkspaceConfig>(yamlPath)
+    const config = await readWorkspaceConfig(yamlPath)
     if (config) {
       config.last_modified_at = getCurrentDateString()
-      await writeYamlFile(yamlPath, config as unknown as Record<string, unknown>)
+      await writeWorkspaceConfig(yamlPath, config)
     }
 
     return true

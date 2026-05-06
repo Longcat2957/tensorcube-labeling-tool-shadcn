@@ -12,17 +12,31 @@
   let viewportHeight = $state(0)
   let scrollTop = $state(0)
 
-  const total = $derived(workspaceManager.imageList.length)
+  // 필터된 리스트를 표시하지만, idx는 원본 imageList 기준 (네비게이션 일관성 유지)
+  const fullList = $derived(workspaceManager.imageList)
+  const filteredList = $derived(workspaceManager.filteredImageList)
+  const total = $derived(filteredList.length)
+  const fullTotal = $derived(fullList.length)
+  const isFiltered = $derived(total !== fullTotal)
   const visibleCount = $derived(Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2)
   const startIndex = $derived(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN))
   const endIndex = $derived(Math.min(total, startIndex + visibleCount))
   const visibleItems = $derived.by(() => {
-    const list = workspaceManager.imageList
+    const filtered = filteredList
+    const full = fullList
+    // 매핑: filtered 안의 위치 → full 안의 idx
+    // 필터 적용 시 ID로 매핑 (linear 검색 비용은 visible window에 한해서만)
     const out: { idx: number; id: string; filename: string; status: string }[] = []
     for (let i = startIndex; i < endIndex; i++) {
-      const img = list[i]
+      const img = filtered[i]
       if (!img) continue
-      out.push({ idx: i, id: img.id, filename: img.filename, status: img.status })
+      const fullIdx = full.findIndex((x) => x.id === img.id)
+      out.push({
+        idx: fullIdx >= 0 ? fullIdx : i,
+        id: img.id,
+        filename: img.filename,
+        status: img.status
+      })
     }
     return out
   })
@@ -43,10 +57,12 @@
     return 'bg-muted-foreground/40'
   }
 
-  // 현재 이미지로 스크롤 (이미지 변경 시)
+  // 현재 이미지로 스크롤 (이미지 변경 시) — 필터된 리스트 내 인덱스로 변환
   $effect(() => {
-    const idx = workspaceManager.currentImageIndex
-    if (idx < 0 || !scrollEl) return
+    const cur = workspaceManager.currentImage
+    if (!cur || !scrollEl) return
+    const idx = filteredList.findIndex((x) => x.id === cur.id)
+    if (idx < 0) return
     const targetTop = idx * ROW_HEIGHT
     const targetBottom = targetTop + ROW_HEIGHT
     if (targetTop < scrollEl.scrollTop || targetBottom > scrollEl.scrollTop + viewportHeight) {
@@ -70,9 +86,11 @@
 
 <aside class="h-full flex flex-col border-r bg-background" aria-label="이미지 리스트">
   <div class="flex items-center justify-between border-b px-3 py-2">
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Images</h2>
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      Images{isFiltered ? ' (필터됨)' : ''}
+    </h2>
     <span class="text-[10px] text-muted-foreground tabular-nums">
-      {workspaceManager.currentImageIndex + 1} / {total}
+      {workspaceManager.currentImageIndex + 1} / {isFiltered ? `${total}/${fullTotal}` : total}
     </span>
   </div>
 

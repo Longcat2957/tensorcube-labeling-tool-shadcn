@@ -8,6 +8,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerDialogHandlers } from './ipc/dialogHandler.js'
 import { registerWorkspaceHandlers } from './ipc/workspaceHandler.js'
 import { registerLabelHandlers } from './ipc/labelHandler.js'
+import { registerUtilityHandlers } from './ipc/utilitiesHandler.js'
 import { loadWindowState, attachWindowStateTracker } from './services/windowState.js'
 
 async function createWindow(): Promise<void> {
@@ -100,6 +101,7 @@ app.whenReady().then(() => {
   registerDialogHandlers()
   registerWorkspaceHandlers()
   registerLabelHandlers()
+  registerUtilityHandlers()
 
   // Check for updates in packaged builds. Dev/HMR runs skip this.
   if (!is.dev) {

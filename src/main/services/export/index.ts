@@ -5,12 +5,12 @@
 
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { ensureDir, readYamlFile } from '../fileService.js'
+import { ensureDir } from '../fileService.js'
+import { readWorkspaceConfig } from '../workspaceService.js'
 import type {
   ExportOptions,
   ExportResult,
   ExportPreflight,
-  WorkspaceConfig,
   BBAnnotation,
   OBBAnnotation
 } from '../../../shared/types.js'
@@ -26,6 +26,9 @@ import { exportYoloDataset } from './formats/yolo.js'
 import { exportYoloObbDataset } from './formats/yoloOBB.js'
 import { exportCocoDataset } from './formats/coco.js'
 import { exportDotaDataset } from './formats/dota.js'
+import { exportYoloSegDataset } from './formats/yoloSeg.js'
+import { exportCocoSegDataset } from './formats/cocoSeg.js'
+import { exportCocoKeypointsDataset } from './formats/cocoKeypoints.js'
 
 const WORKSPACE_FILE = 'workspace.yaml'
 
@@ -40,7 +43,7 @@ export async function exportWorkspace(
 
   try {
     // 설정 로드
-    const config = await readYamlFile<WorkspaceConfig>(join(workspacePath, WORKSPACE_FILE))
+    const config = await readWorkspaceConfig(join(workspacePath, WORKSPACE_FILE))
     if (!config) {
       console.error('[Export] workspace.yaml 읽기 실패')
       return { success: false, error: 'workspace.yaml을 읽을 수 없습니다.' }
@@ -48,8 +51,15 @@ export async function exportWorkspace(
     console.log('[Export] 설정 로드 완료:', config)
 
     // 내보낼 아이템 수집
-    console.log('[Export] 아이템 수집 중... includeCompletedOnly:', options.includeCompletedOnly)
-    const items = await collectExportItems(workspacePath, options.includeCompletedOnly)
+    console.log('[Export] 아이템 수집 중...', {
+      includeCompletedOnly: options.includeCompletedOnly,
+      requireAnnotations: options.requireAnnotations
+    })
+    const items = await collectExportItems(
+      workspacePath,
+      options.includeCompletedOnly,
+      options.requireAnnotations ?? false
+    )
     console.log('[Export] 수집된 아이템 수:', items.length)
 
     if (items.length === 0) {
@@ -122,6 +132,43 @@ export async function exportWorkspace(
           exportedCount = dotaResult.exportedCount
           break
 
+        case 'yolo-seg':
+          const yoloSegResult = await exportYoloSegDataset(
+            items,
+            exportDirPath,
+            config.names,
+            formatOptions
+          )
+          exportedCount = yoloSegResult.exportedCount
+          break
+
+        case 'coco-seg':
+          const cocoSegResult = await exportCocoSegDataset(
+            items,
+            exportDirPath,
+            config.names,
+            formatOptions
+          )
+          exportedCount = cocoSegResult.exportedCount
+          break
+
+        case 'coco-keypoints':
+          if (!config.keypoint_schema) {
+            return {
+              success: false,
+              error: 'coco-keypoints 포맷은 workspace.yaml에 keypoint_schema가 필요합니다.'
+            }
+          }
+          const cocoKpResult = await exportCocoKeypointsDataset(
+            items,
+            exportDirPath,
+            config.names,
+            config.keypoint_schema,
+            formatOptions
+          )
+          exportedCount = cocoKpResult.exportedCount
+          break
+
         default:
           return { success: false, error: `지원하지 않는 포맷: ${options.format}` }
       }
@@ -155,16 +202,23 @@ export type { ExportOptions, ExportResult } from '../../../shared/types.js'
  */
 export async function previewExport(
   workspacePath: string,
-  options: Pick<ExportOptions, 'includeCompletedOnly' | 'outOfBounds' | 'split'>
+  options: Pick<
+    ExportOptions,
+    'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'split'
+  >
 ): Promise<ExportPreflight> {
   const warnings: string[] = []
 
-  const config = await readYamlFile<WorkspaceConfig>(join(workspacePath, WORKSPACE_FILE))
+  const config = await readWorkspaceConfig(join(workspacePath, WORKSPACE_FILE))
   if (!config) {
     warnings.push('workspace.yaml을 읽을 수 없습니다.')
   }
 
-  const items = await collectExportItems(workspacePath, options.includeCompletedOnly)
+  const items = await collectExportItems(
+    workspacePath,
+    options.includeCompletedOnly,
+    options.requireAnnotations ?? false
+  )
   const totalItems = items.length
 
   const splitCountsDummy: ExportableItemsCountedBySplit = { train: 0, val: 0, test: 0 }

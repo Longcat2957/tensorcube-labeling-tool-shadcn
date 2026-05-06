@@ -1,7 +1,7 @@
-import { readdir, stat, mkdir, writeFile, readFile, copyFile } from 'fs/promises'
+import { readdir, stat, mkdir, writeFile, readFile, copyFile, rename, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
-import { join, extname } from 'path'
-import { createHash } from 'crypto'
+import { join, extname, dirname, basename } from 'path'
+import { createHash, randomBytes } from 'crypto'
 import sharp from 'sharp'
 
 const SUPPORTED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.webp']
@@ -52,10 +52,29 @@ export async function readJsonFile<T>(filePath: string): Promise<T | null> {
   }
 }
 
-// JSON 파일 쓰기
+// 텍스트 파일을 atomic 하게 작성 (temp 파일 작성 후 rename)
+// 도중 프로세스가 죽어도 대상 파일은 이전 상태이거나 새 상태이며, 토막난 상태로 남지 않는다.
+async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+  const dir = dirname(filePath)
+  const base = basename(filePath)
+  const tmpPath = join(dir, `.${base}.${randomBytes(6).toString('hex')}.tmp`)
+  try {
+    await writeFile(tmpPath, content, 'utf-8')
+    await rename(tmpPath, filePath)
+  } catch (err) {
+    try {
+      await unlink(tmpPath)
+    } catch {
+      // 이미 정리된 경우 무시
+    }
+    throw err
+  }
+}
+
+// JSON 파일 쓰기 (atomic)
 export async function writeJsonFile<T>(filePath: string, data: T): Promise<void> {
   const content = JSON.stringify(data, null, 2)
-  await writeFile(filePath, content, 'utf-8')
+  await atomicWriteFile(filePath, content)
 }
 
 // YAML 파일 읽기 (간단한 파서)
@@ -68,13 +87,13 @@ export async function readYamlFile<T>(filePath: string): Promise<T | null> {
   return parseYaml(content) as T
 }
 
-// YAML 파일 쓰기 (간단한 직렬화)
+// YAML 파일 쓰기 (atomic, 간단한 직렬화)
 export async function writeYamlFile(
   filePath: string,
   data: Record<string, unknown>
 ): Promise<void> {
   const content = stringifyYaml(data)
-  await writeFile(filePath, content, 'utf-8')
+  await atomicWriteFile(filePath, content)
 }
 
 // 간단한 YAML 파서

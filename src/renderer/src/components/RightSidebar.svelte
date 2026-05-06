@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getContext } from 'svelte'
-  import { Eye, EyeOff, Trash2 } from '@lucide/svelte'
+  import { Eye, EyeOff, Trash2, X } from '@lucide/svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import * as Resizable from '$lib/components/ui/resizable/index.js'
   import { RadioGroup, RadioGroupItem } from '$lib/components/ui/radio-group/index.js'
@@ -24,6 +24,21 @@
   // 라벨 삭제
   function handleLabelDelete(labelId: string) {
     workspaceManager.deleteLabel(labelId)
+  }
+
+  // 태그 입력
+  let tagInput = $state('')
+  function commitTag() {
+    const v = tagInput.trim()
+    if (!v) return
+    workspaceManager.addCurrentTag(v)
+    tagInput = ''
+  }
+  function handleTagKey(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commitTag()
+    }
   }
 </script>
 
@@ -78,6 +93,50 @@
                 </RadioGroup>
               {:else}
                 <p class="text-xs text-muted-foreground">클래스가 없습니다</p>
+              {/if}
+            </div>
+          </ScrollArea>
+        </Resizable.Pane>
+        <Resizable.Handle />
+        <!-- Tags Section (A-3) -->
+        <Resizable.Pane defaultSize={20} minSize={10}>
+          <ScrollArea class="h-full">
+            <div class="p-3 space-y-2">
+              <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Image Tags
+              </h3>
+              <div class="flex gap-1">
+                <input
+                  type="text"
+                  class="flex h-7 flex-1 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="태그 입력 후 Enter"
+                  bind:value={tagInput}
+                  onkeydown={handleTagKey}
+                />
+                <Button variant="outline" size="sm" class="h-7 px-2" onclick={commitTag}>
+                  추가
+                </Button>
+              </div>
+              {#if workspaceManager.currentTags.length > 0}
+                <div class="flex flex-wrap gap-1">
+                  {#each workspaceManager.currentTags as tag (tag)}
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-0.5 text-xs"
+                    >
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        class="text-muted-foreground hover:text-destructive"
+                        aria-label="태그 {tag} 삭제"
+                        onclick={() => workspaceManager.removeCurrentTag(tag)}
+                      >
+                        <X class="size-3" />
+                      </button>
+                    </span>
+                  {/each}
+                </div>
+              {:else}
+                <p class="text-xs text-muted-foreground">태그 없음</p>
               {/if}
             </div>
           </ScrollArea>

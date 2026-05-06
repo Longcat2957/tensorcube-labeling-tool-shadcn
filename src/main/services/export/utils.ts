@@ -103,13 +103,18 @@ export function assignSplits(
 
 /**
  * Export 아이템 수집
- * 빈 어노테이션도 포함 (이미지만 있는 경우도 export)
+ * 빈 어노테이션도 기본적으로 포함하나, requireAnnotations=true 면 어노테이션이 있는 항목만 포함한다.
  */
 export async function collectExportItems(
   workspacePath: string,
-  includeCompletedOnly: boolean
+  includeCompletedOnly: boolean,
+  requireAnnotations: boolean = false
 ): Promise<ExportableItem[]> {
-  console.log('[Export] collectExportItems 시작:', { workspacePath, includeCompletedOnly })
+  console.log('[Export] collectExportItems 시작:', {
+    workspacePath,
+    includeCompletedOnly,
+    requireAnnotations
+  })
 
   const labelDir = join(workspacePath, LABEL_DIR)
   const srcDir = join(workspacePath, SRC_DIR)
@@ -143,6 +148,14 @@ export async function collectExportItems(
       continue
     }
 
+    const annotations = labelData.annotations || []
+
+    // 라벨이 있는 이미지만 강제 export 옵션
+    if (requireAnnotations && annotations.length === 0) {
+      skipped++
+      continue
+    }
+
     const imagePath = join(srcDir, labelData.image_info.filename)
     if (!existsSync(imagePath)) {
       console.warn('[Export] 이미지 파일 없음:', imagePath)
@@ -157,7 +170,7 @@ export async function collectExportItems(
       labelData: {
         image_info: labelData.image_info,
         // 빈 어노테이션도 포함
-        annotations: labelData.annotations || []
+        annotations
       },
       split: 'train'
     })

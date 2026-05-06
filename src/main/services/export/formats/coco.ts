@@ -67,9 +67,11 @@ export async function exportCocoDataset(
         height: resized.height
       })
 
-      // 어노테이션 처리 (COCO는 BB만 지원)
+      // 어노테이션 처리 (COCO 본 포맷은 BB만 — Polygon/Keypoint는 별도 export로)
       for (const annotation of item.labelData.annotations) {
-        if (!('bbox' in annotation)) continue
+        if (!('bbox' in annotation) || !annotation.bbox) continue
+        // Keypoint 어노테이션은 bbox가 옵션이므로 BBAnnotation만 통과
+        if ('keypoints' in annotation) continue
 
         const scaled = scaleBbox(annotation.bbox, item.labelData.image_info, resized)
         const processed = applyOutOfBoundsPolicyToBbox(scaled, resized, outOfBounds)
