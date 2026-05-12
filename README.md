@@ -23,15 +23,42 @@
 
 최신 바이너리는 [GitHub Releases](https://github.com/Longcat2957/tensorcube-labeling-tool-shadcn/releases)에서 받을 수 있습니다.
 
-| OS      | 포맷                                                 |
-| ------- | ---------------------------------------------------- |
-| Linux   | `.AppImage` (즉시 실행), `.deb` (데비안/우분투 계열) |
-| Windows | `.exe` (NSIS 인스톨러)                               |
-| macOS   | `.dmg` (x64 / arm64)                                 |
+| OS      | 포맷                                                                            |
+| ------- | ------------------------------------------------------------------------------- |
+| Linux   | `.AppImage` (즉시 실행), `.deb` (Debian/Ubuntu 계열), `.rpm` (Fedora/RHEL 계열) |
+| Windows | `.exe` (NSIS 인스톨러, x64)                                                     |
+| macOS   | `.dmg` / `.zip` (x64 + arm64 별도 제공)                                         |
 
-> **서명 안내**: 현재 릴리스는 코드 서명이 적용되지 않습니다. Windows에서는 SmartScreen 경고, macOS에서는 "확인되지 않은 개발자" 안내가 뜰 수 있으며, 각각 "추가 정보 → 실행" / "우클릭 → 열기"로 진행할 수 있습니다.
+설치된 앱은 시작 시 자동으로 GitHub Releases를 확인하고 새 버전을 내려받습니다 (재시작 시 적용).
 
-설치된 앱은 시작 시 자동으로 GitHub Releases를 확인하고 새 버전을 내려받습니다(재시작 시 적용).
+### 첫 실행 가이드 (코드 서명 미적용 상태)
+
+현재 릴리스는 코드 서명/공증이 적용되지 않아 OS별 보안 경고가 표시됩니다. 일회성 우회 방법:
+
+**Windows (SmartScreen)**
+
+1. 인스톨러 실행 시 "Windows의 PC 보호" 창이 뜨면 **추가 정보** 클릭
+2. **실행** 버튼 클릭
+
+**macOS (Gatekeeper)**
+
+다음 중 하나:
+
+- Finder에서 `.app` **우클릭 → 열기 → 그래도 열기**, 혹은
+- 터미널에서 quarantine 속성 제거:
+  ```bash
+  xattr -cr "/Applications/Tensorcube Labeling Tool.app"
+  ```
+
+**Linux**
+
+- `.AppImage`: 다운로드 후 실행 권한 부여
+  ```bash
+  chmod +x Tensorcube-Labeling-Tool-*.AppImage
+  ./Tensorcube-Labeling-Tool-*.AppImage
+  ```
+- `.deb`: `sudo apt install ./tensorcube-labeling-tool_*.deb`
+- `.rpm`: `sudo dnf install ./tensorcube-labeling-tool-*.rpm` (또는 `sudo rpm -i`)
 
 ## 설치 & 실행 (개발자)
 

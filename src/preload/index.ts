@@ -116,13 +116,56 @@ const utilities = {
     ipcRenderer.invoke('utility:analyzeQuality', options)
 }
 
+// SAM 어시스턴트 APIs
+const sam = {
+  checkReady: () => ipcRenderer.invoke('sam:checkReady'),
+  encode: (workspacePath: string, imageFilename: string, embeddingKey: string) =>
+    ipcRenderer.invoke('sam:encode', workspacePath, imageFilename, embeddingKey),
+  predict: (
+    embeddingKey: string,
+    prompt: {
+      points: { x: number; y: number; label: 0 | 1 }[]
+      box?: [number, number, number, number]
+    }
+  ) => ipcRenderer.invoke('sam:predict', embeddingKey, prompt),
+  unload: (embeddingKey: string) => ipcRenderer.invoke('sam:unload', embeddingKey)
+}
+
+// App / autoUpdater APIs
+const appApi = {
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  isPackaged: (): Promise<boolean> => ipcRenderer.invoke('app:isPackaged'),
+  checkForUpdates: (): Promise<{
+    ok: boolean
+    reason?: 'dev' | 'error' | 'not-downloaded'
+    version?: string | null
+    message?: string
+  }> => ipcRenderer.invoke('app:checkForUpdates'),
+  installUpdate: (): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke('app:installUpdate'),
+  onUpdateEvent: (
+    cb: (event: {
+      type: 'checking' | 'available' | 'not-available' | 'progress' | 'downloaded' | 'error'
+      version?: string
+      percent?: number
+      message?: string
+    }) => void
+  ) => {
+    const handler = (_e: unknown, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on('app:updateEvent', handler)
+    return () => ipcRenderer.removeListener('app:updateEvent', handler)
+  }
+}
+
 // Custom APIs for renderer
 const api = {
   dialog,
   workspace,
   label,
   utils,
-  utilities
+  utilities,
+  sam,
+  app: appApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

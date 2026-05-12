@@ -132,12 +132,18 @@ export function applySelectedStyle(rect: BoxRect, selected: boolean): void {
 // 뱃지 상수
 // ============================================
 
-export const BADGE_HEIGHT = 22
-export const BADGE_PADDING = 8
-export const BADGE_FONT_SIZE = 12
+export const BADGE_HEIGHT = 18
+export const BADGE_PADDING = 6
+export const BADGE_FONT_SIZE = 11
 export const BADGE_MIN_SCALE = 0.5
+/** 뱃지 배경 알파 (살짝 투명해 원본 이미지를 덜 가림) */
+export const BADGE_BG_ALPHA = 0.92
 
-/** 뱃지 스케일링: 제곱근 기반으로 축소 시 덜 줄어들고 확대 시 덜 커지도록 보정 */
-export function badgeScale(scale: number): number {
-  return Math.max(Math.sqrt(scale), BADGE_MIN_SCALE)
+/**
+ * 뱃지 스케일링.
+ * - 1번째 인자 zoom: 줌 비율(이미지 scale). sqrt 보정으로 축소 시 덜 줄고 확대 시 덜 커짐.
+ * - 2번째 인자 userScale: 사용자가 슬라이더로 지정한 가중치(기본 1.0). 0이면 호출자가 가시성 숨김 처리.
+ */
+export function badgeScale(zoom: number, userScale: number = 1): number {
+  return Math.max(Math.sqrt(zoom), BADGE_MIN_SCALE) * userScale
 }

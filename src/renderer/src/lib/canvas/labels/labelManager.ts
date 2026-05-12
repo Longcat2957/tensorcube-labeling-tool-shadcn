@@ -47,6 +47,8 @@ export interface LabelManagerContext {
   toolManager: ToolManager
   /** 현재 앱 모드. Check 모드에서는 박스 이동/회전이 잠기고 크기 조절만 허용된다. */
   appMode: AppMode
+  /** 라벨 뱃지 사용자 스케일 (0~1.5). 0이면 뱃지 hidden. */
+  userBadgeScale: number
 }
 
 /**
@@ -103,13 +105,20 @@ export function applyModeLocksToAll(
 export function clearCanvasOverlays(
   fabricCanvas: Canvas,
   labelBoxes: Map<string, CanvasLabelObjects>,
-  drawingBox: { value: any }
+  drawingBox: { value: any },
+  dimensionLabel?: { value: any }
 ): void {
   if (!fabricCanvas) return
 
   if (drawingBox.value) {
     fabricCanvas.remove(drawingBox.value)
     drawingBox.value = null
+  }
+
+  // 그리는 중 W×H ghost 라벨도 함께 정리 — 이미지 전환 / undo 시 잔존 방지.
+  if (dimensionLabel?.value) {
+    fabricCanvas.remove(dimensionLabel.value)
+    dimensionLabel.value = null
   }
 
   labelBoxes.forEach((objects) => {
@@ -151,7 +160,14 @@ export function addBoxToCanvas(
     workspaceManager.workspaceConfig?.names?.[String(annotation.class_id)] ??
     `Class ${annotation.class_id}`
   const rect = createLabelBox(annotation, scale, offset.x, offset.y)
-  const badge = createLabelBadge(annotation, className, scale, offset.x, offset.y)
+  const badge = createLabelBadge(
+    annotation,
+    className,
+    scale,
+    offset.x,
+    offset.y,
+    context.userBadgeScale
+  )
 
   // 선택 이벤트 핸들러 (Shift-click 다중 선택 지원)
   rect.on('selected', (evt) => {
@@ -242,7 +258,8 @@ export function addBoxToCanvas(
             offset.x,
             offset.y,
             false,
-            className
+            className,
+            context.userBadgeScale
           )
         }
       } else {
@@ -255,7 +272,8 @@ export function addBoxToCanvas(
             offset.x,
             offset.y,
             true,
-            className
+            className,
+            context.userBadgeScale
           )
         }
       }
@@ -330,7 +348,14 @@ export function addPolygonToCanvas(
     `Class ${annotation.class_id}`
 
   const polygonObj = createPolygonObject(annotation, scale, offset.x, offset.y)
-  const badge = createLabelBadge(annotation, className, scale, offset.x, offset.y)
+  const badge = createLabelBadge(
+    annotation,
+    className,
+    scale,
+    offset.x,
+    offset.y,
+    context.userBadgeScale
+  )
 
   polygonObj.on('selected', (evt) => {
     if (toolManager.currentTool === 'pan') {
@@ -378,7 +403,16 @@ export function addPolygonToCanvas(
       const maxX = Math.max(...xs)
       const maxY = Math.max(...ys)
       // 가짜 bbox로 badge 위치 갱신
-      updateBadgePosition(objects.badge, [minX, minY, maxX, maxY], s, o.x, o.y, true, className)
+      updateBadgePosition(
+        objects.badge,
+        [minX, minY, maxX, maxY],
+        s,
+        o.x,
+        o.y,
+        true,
+        className,
+        context.userBadgeScale
+      )
     }
     fabricCanvas?.requestRenderAll()
   })
@@ -474,7 +508,8 @@ export function updateAllBoxPositions(
           offset.x,
           offset.y,
           true,
-          className
+          className,
+          context.userBadgeScale
         )
       }
     } else {
@@ -487,7 +522,8 @@ export function updateAllBoxPositions(
         offset.x,
         offset.y,
         'bbox' in annotation,
-        className
+        className,
+        context.userBadgeScale
       )
     }
   })
@@ -505,13 +541,14 @@ export function updateAllBoxPositions(
 export function renderLabels(
   context: LabelManagerContext,
   labelBoxes: Map<string, CanvasLabelObjects>,
-  drawingBox: { value: any }
+  drawingBox: { value: any },
+  dimensionLabel?: { value: any }
 ): void {
   const { fabricCanvas, workspaceManager } = context
 
   if (!fabricCanvas) return
 
-  clearCanvasOverlays(fabricCanvas, labelBoxes, drawingBox)
+  clearCanvasOverlays(fabricCanvas, labelBoxes, drawingBox, dimensionLabel)
 
   const labelData = workspaceManager.currentLabelData
   if (!labelData || !labelData.annotations) return
@@ -593,7 +630,8 @@ export function syncLabelChanges(
           offset.x,
           offset.y,
           true,
-          className
+          className,
+          context.userBadgeScale
         )
       }
       applySelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id)
@@ -617,7 +655,8 @@ export function syncLabelChanges(
         offset.x,
         offset.y,
         'bbox' in annotation,
-        className
+        className,
+        context.userBadgeScale
       )
       applySelectedStyle(existingObjects.rect, workspaceManager.selectedLabelId === annotation.id)
       existingObjects.rect.setCoords()

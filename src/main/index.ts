@@ -2,16 +2,16 @@ import { app, shell, BrowserWindow, protocol } from 'electron'
 import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import pkg from 'electron-updater'
-const { autoUpdater } = pkg
 import icon from '../../resources/icon.png?asset'
 import { registerDialogHandlers } from './ipc/dialogHandler.js'
 import { registerWorkspaceHandlers } from './ipc/workspaceHandler.js'
 import { registerLabelHandlers } from './ipc/labelHandler.js'
 import { registerUtilityHandlers } from './ipc/utilitiesHandler.js'
+import { registerSamHandlers } from './ipc/samHandler.js'
 import { loadWindowState, attachWindowStateTracker } from './services/windowState.js'
+import { initializeAutoUpdater, registerAutoUpdaterHandlers } from './services/autoUpdater.js'
 
-async function createWindow(): Promise<void> {
+async function createWindow(): Promise<BrowserWindow> {
   const state = await loadWindowState()
 
   const mainWindow = new BrowserWindow({
@@ -52,6 +52,8 @@ async function createWindow(): Promise<void> {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return mainWindow
 }
 
 // Register custom protocol for loading workspace images
@@ -102,18 +104,12 @@ app.whenReady().then(() => {
   registerWorkspaceHandlers()
   registerLabelHandlers()
   registerUtilityHandlers()
+  registerAutoUpdaterHandlers()
+  registerSamHandlers()
 
-  // Check for updates in packaged builds. Dev/HMR runs skip this.
-  if (!is.dev) {
-    autoUpdater.logger = null
-    autoUpdater.autoDownload = true
-    autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.warn('[autoUpdater] check failed:', err?.message ?? err)
-    })
-  }
-
-  void createWindow()
+  void createWindow().then((win) => {
+    initializeAutoUpdater(win)
+  })
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

@@ -141,6 +141,11 @@ export interface ExportOptions {
   /** true 이면 어노테이션이 1개 이상 있는 이미지만 내보낸다. 검수 완료 여부와 독립적으로 동작. */
   requireAnnotations?: boolean
   outOfBounds?: OutOfBoundsPolicy
+  /**
+   * PDF 인쇄 페이지 범위 형식의 이미지 번호 필터. 예: "1-15, 19, 20".
+   * 비어있거나 undefined 면 전체 이미지가 대상이 된다.
+   */
+  imageRange?: string
   resize?: {
     enabled: boolean
     width: number
@@ -177,6 +182,69 @@ export interface IpcResponse<T = void> {
   success: boolean
   data?: T
   error?: string
+}
+
+// SAM (Click/Box) 어시스턴트
+//
+// 좌표는 모두 **원본 픽셀 좌표** 기준. 1024 letterbox 변환은 main 프로세스 내부에서 처리한다.
+// 워크플로우:
+//   1) renderer: window.api.sam.encode(imageId) — 이미지 임베딩 사전 계산 + 캐시
+//   2) renderer: window.api.sam.predict(embeddingKey, prompts) — 클릭/박스 → 마스크
+//   3) (이미지 떠나면) renderer: window.api.sam.unload(embeddingKey)
+
+export interface SamPoint {
+  /** 원본 픽셀 X */ x: number
+  /** 원본 픽셀 Y */ y: number
+  /** 1=positive, 0=negative */ label: 0 | 1
+}
+
+export interface SamPrompt {
+  /** 양/음 점 프롬프트 — 비어 있어도 됨 (박스만 사용 가능) */
+  points: SamPoint[]
+  /** 박스 프롬프트 — [x1,y1,x2,y2] 원본 픽셀, 옵션 */
+  box?: [number, number, number, number]
+}
+
+export interface SamMask {
+  /** 마스크 폭 (원본 픽셀 해상도) */ width: number
+  /** 마스크 높이 (원본 픽셀 해상도) */ height: number
+  /** 0/1 binary mask, length = width*height (row-major) */
+  data: Uint8Array
+}
+
+export interface SamPredictionResult {
+  mask: SamMask
+  /** multimask 후보 중 선택된 마스크의 IoU 예측치 (0–1) */
+  score: number
+  /** 추론에 걸린 ms (디코더만, 캐시 hit 기준) */
+  ms: number
+}
+
+export interface SamEncodeResult {
+  /** predict / unload 호출 시 사용하는 캐시 키. 보통 imageId 자체. */
+  embeddingKey: string
+  /** 인코더 forward 시간 (ms). 캐시 hit 였다면 0 근처. */
+  ms: number
+  /** true 면 캐시에서 즉시 반환 */
+  cached: boolean
+}
+
+/** 모델 메타데이터 — Settings UI 와 상태 표시에 사용. */
+export interface SamModelInfo {
+  /** 'sam2.1_hiera_tiny' 같은 식별자 */
+  id: string
+  /** 사람이 읽는 이름 */
+  displayName: string
+  /** ONNX 인코더 절대 경로 */
+  encoderPath: string
+  /** ONNX 디코더 절대 경로 */
+  decoderPath: string
+  /** 인코더 입력 정사각 해상도 (1024 고정 in SAM2) */
+  inputSize: number
+  /** 모델 로딩 여부 */
+  loaded: boolean
+  /** 모델 파일을 어디서 찾았는지 — 'env' / 'user' / 'bundled' / 'missing' */
+  source: 'env' | 'user' | 'bundled' | 'missing'
 }
 
 // 스냅샷 / 백업

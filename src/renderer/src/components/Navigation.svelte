@@ -20,9 +20,11 @@
     Wrench,
     Hammer,
     BarChart3,
-    ShieldAlert
+    ShieldAlert,
+    RefreshCw
   } from '@lucide/svelte'
   import { mode, toggleMode } from 'mode-watcher'
+  import { toast } from 'svelte-sonner'
   import CreateProjectDialog from './dialogs/CreateProjectDialog.svelte'
   import OpenWorkspaceDialog from './dialogs/OpenWorkspaceDialog.svelte'
   import ExportDialog from './dialogs/ExportDialog.svelte'
@@ -40,6 +42,29 @@
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
   const modeManager = getContext<ModeManager>(MODE_MANAGER_KEY)
+
+  let checkingUpdate = $state(false)
+
+  async function handleCheckForUpdates(): Promise<void> {
+    if (checkingUpdate) return
+    checkingUpdate = true
+    // App.svelte 의 update 이벤트 구독부에 "수동 체크" 신호를 보낸다 —
+    // not-available 토스트가 자동 체크에서는 뜨지 않도록 격리.
+    window.dispatchEvent(new Event('app:manual-update-check'))
+    try {
+      const result = await window.api.app.checkForUpdates()
+      if (!result.ok) {
+        if (result.reason === 'dev') {
+          toast.message('개발 모드에서는 업데이트를 확인하지 않습니다.')
+        } else if (result.reason === 'error') {
+          toast.error('업데이트 확인 실패', { description: result.message })
+        }
+      }
+      // 그 외(ok=true 또는 not-available)는 onUpdateEvent 흐름에서 토스트가 뜸
+    } finally {
+      checkingUpdate = false
+    }
+  }
 </script>
 
 <header class="h-14 border-b flex items-center px-4 justify-between">
@@ -109,6 +134,16 @@
             데이터 준비 도구
           </div>
         </ToolsDialog>
+        <DropdownMenuSeparator />
+        <button
+          type="button"
+          class="flex items-center px-2 py-1.5 text-sm cursor-pointer rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={checkingUpdate}
+          onclick={handleCheckForUpdates}
+        >
+          <RefreshCw class="size-4 mr-2 {checkingUpdate ? 'animate-spin' : ''}" />
+          {checkingUpdate ? '업데이트 확인 중…' : '업데이트 확인'}
+        </button>
       </DropdownMenuContent>
     </DropdownMenu>
     <div class="font-semibold text-sm">

@@ -68,11 +68,18 @@ let selectedLabelIds = $state<string[]>([])
 // 라벨 가시성 상태 (개별)
 let labelVisibility = $state<Record<string, boolean>>({})
 
+// 클래스별 visibility — 특정 클래스의 모든 라벨을 한 번에 숨기고 싶을 때.
+// 빈 Set 일 때는 모든 클래스가 보임. 워크스페이스 전환 시 reset.
+let hiddenClassIds = $state<number[]>([])
+
 // 전역 라벨 숨김 (H 단축키)
 let labelsHidden = $state<boolean>(false)
 
 // 라벨 불투명도 (0~1) — 플로팅 바 Slider에서 조절
 let labelOpacity = $state<number>(1)
+
+// 라벨 뱃지 크기 가중치 (0~1.5). 1.0 = 기본 크기. 0이면 뱃지 숨김(박스는 유지).
+let labelBadgeScale = $state<number>(1)
 
 // 저장 상태 (Footer 인디케이터)
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
@@ -284,6 +291,7 @@ function closeWorkspace(): void {
   imageList = []
   currentImageIndex = -1
   currentLabelData = null
+  hiddenClassIds = []
   clearAllHistory()
 }
 
@@ -368,6 +376,25 @@ async function prevImage(): Promise<void> {
   const prev = findNextFilteredIndex(-1)
   if (prev !== null && prev !== currentImageIndex) {
     await goToImage(prev)
+  }
+}
+
+/**
+ * status !== 'completed' 인 다음(또는 이전) 이미지로 점프.
+ * 1000장 워크스페이스에서 마무리 못한 이미지만 빠르게 순회하는 용도.
+ * 현재 활성 필터 (filteredImageList) 는 그대로 존중 — 필터 위에 한 번 더 거른다.
+ * 없으면 noop.
+ */
+async function jumpToNextUnfinished(direction: 1 | -1): Promise<void> {
+  if (imageList.length === 0 || currentImageIndex < 0) return
+  const start = currentImageIndex + direction
+  const filteredIds = new Set(filteredImageList.map((i) => i.id))
+  for (let i = start; i >= 0 && i < imageList.length; i += direction) {
+    const img = imageList[i]
+    if (img.status === 'completed') continue
+    if (filteredIds.size > 0 && !filteredIds.has(img.id)) continue
+    await goToImage(i)
+    return
   }
 }
 
@@ -552,6 +579,36 @@ function toggleLabelSelection(id: string): void {
   }
 }
 
+/**
+ * 특정 라벨의 class_id 를 변경. 라벨이 없으면 noop.
+ * undo 가능하고 자동저장 트리거됨.
+ */
+function setLabelClass(labelId: string, newClassId: number): void {
+  setLabelClasses([labelId], newClassId)
+}
+
+/**
+ * 여러 라벨의 class_id 를 한 번에 변경 — 다중 선택 reclass 흐름의 핵심.
+ * 단일 history snapshot 만 push 해서 undo 한 번에 통째 되돌아간다.
+ * 이미 newClassId 인 라벨은 skip 하고, 실제 바뀐 게 없으면 history/autosave 도 안 친다.
+ */
+function setLabelClasses(labelIds: string[], newClassId: number): void {
+  if (!currentLabelData || labelIds.length === 0) return
+  const idSet = new Set(labelIds)
+  let changed = false
+  const newAnnotations = currentLabelData.annotations.map((a) => {
+    if (idSet.has(a.id) && a.class_id !== newClassId) {
+      changed = true
+      return { ...a, class_id: newClassId }
+    }
+    return a
+  })
+  if (!changed) return
+  pushHistorySnapshot()
+  currentLabelData = { ...currentLabelData, annotations: newAnnotations }
+  scheduleAutosave()
+}
+
 function clearSelection(): void {
   selectedLabelId = null
   selectedLabelIds = []
@@ -562,7 +619,24 @@ function toggleLabelVisibility(labelId: string): void {
 }
 
 function isLabelVisible(labelId: string): boolean {
-  return labelVisibility[labelId] ?? true
+  // 개별 라벨 visibility 와 클래스 visibility 두 단계 AND.
+  if (!(labelVisibility[labelId] ?? true)) return false
+  if (hiddenClassIds.length === 0) return true
+  const ann = currentLabelData?.annotations.find((a) => a.id === labelId)
+  if (!ann) return true
+  return !hiddenClassIds.includes(ann.class_id)
+}
+
+function toggleClassVisibility(classId: number): void {
+  if (hiddenClassIds.includes(classId)) {
+    hiddenClassIds = hiddenClassIds.filter((id) => id !== classId)
+  } else {
+    hiddenClassIds = [...hiddenClassIds, classId]
+  }
+}
+
+function isClassHidden(classId: number): boolean {
+  return hiddenClassIds.includes(classId)
 }
 
 function toggleLabelsHidden(): void {
@@ -571,6 +645,10 @@ function toggleLabelsHidden(): void {
 
 function setLabelOpacity(value: number): void {
   labelOpacity = Math.max(0, Math.min(1, value))
+}
+
+function setLabelBadgeScale(value: number): void {
+  labelBadgeScale = Math.max(0, Math.min(1.5, value))
 }
 
 /**
@@ -1010,6 +1088,29 @@ function updateOBBAnnotation(labelId: string, obb: [number, number, number, numb
 }
 
 /**
+ * 현재 단일 선택된 BB의 우하단(xmax, ymax)을 (dx, dy) 만큼 한 번에 이동.
+ * 좌상단(xmin, ymin)은 고정. 휠 이벤트가 deltaX/deltaY 둘 다 가질 수 있어
+ * 한 번의 mutation으로 묶는다 (history/autosave 1회).
+ *
+ * BB 가 아니면 no-op (OBB는 별도 처리: 휠 회전).
+ */
+function resizeSelectedBBBy(dx: number, dy: number): boolean {
+  if (!currentLabelData) return false
+  if (selectedLabelIds.length !== 1) return false
+  const id = selectedLabelIds[0]
+  const ann = currentLabelData.annotations.find((a) => a.id === id)
+  if (!ann || !('bbox' in ann)) return false
+
+  const [xmin, ymin, xmax, ymax] = ann.bbox
+  const newXmax = Math.max(xmin + 1, xmax + dx)
+  const newYmax = Math.max(ymin + 1, ymax + dy)
+  if (newXmax === xmax && newYmax === ymax) return false
+
+  updateBBAnnotation(id, [xmin, ymin, newXmax, newYmax])
+  return true
+}
+
+/**
  * 현재 단일 선택된 박스의 크기를 axis(`w`/`h`) 방향으로 delta(px) 만큼 조절.
  * - BB: 좌상단 고정, xmax/ymax만 이동 (delta>0 = 늘림)
  * - OBB: 중심 고정, w/h 만 변경 (delta>0 = 늘림)
@@ -1211,6 +1312,9 @@ export function createWorkspaceManager() {
     get labelOpacity() {
       return labelOpacity
     },
+    get labelBadgeScale() {
+      return labelBadgeScale
+    },
     get saveStatus() {
       return saveStatus
     },
@@ -1233,6 +1337,7 @@ export function createWorkspaceManager() {
     goToImage,
     nextImage,
     prevImage,
+    jumpToNextUnfinished,
     saveLabel,
     updateWorkspaceConfig,
     updateWorkspaceConfigFile,
@@ -1242,13 +1347,18 @@ export function createWorkspaceManager() {
 
     // 라벨 관리 메서드
     setSelectedLabelId,
+    setLabelClass,
+    setLabelClasses,
     toggleLabelSelection,
     clearSelection,
     deleteSelectedLabels,
     toggleLabelVisibility,
     isLabelVisible,
+    toggleClassVisibility,
+    isClassHidden,
     toggleLabelsHidden,
     setLabelOpacity,
+    setLabelBadgeScale,
     requestPanToImagePoint,
     flushSave,
     copySelectedLabels,
@@ -1271,6 +1381,7 @@ export function createWorkspaceManager() {
     getBBAnnotationById,
     getOBBAnnotationById,
     resizeSelectedBox,
+    resizeSelectedBBBy,
     undo,
     redo,
 

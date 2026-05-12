@@ -1,7 +1,9 @@
 appId: com.longcat2957.tensorcube-labeling-tool
 productName: Tensorcube Labeling Tool
+
 directories:
   buildResources: build
+
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -12,19 +14,46 @@ files:
   - '!qa-checklist.md'
   - '!roadmap.md'
   - '!CLAUDE.md'
+  - '!key.md'
+  - '!docs/**'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+
 asarUnpack:
   - resources/**
   - node_modules/ffmpeg-static/**
+
+# Phase 18 SAM 어시스턴트 — ONNX 모델은 asar 와 분리해서 process.resourcesPath/sam-models/ 에 배치.
+# onnxruntime-node 가 asar 가상 경로를 다룰 수 없고, 121MB 짜리 파일 2개라 asar 에 둘 이유가 없다.
+extraResources:
+  - from: resources/sam-models
+    to: sam-models
+    filter:
+      - '*.onnx'
+
+# 코드 서명 / 공증은 운영 투자 단계. 미적용 상태에서는 OS별 첫 실행 차단 우회를
+# README 의 "설치" 섹션으로 안내한다.
+# - Windows: SmartScreen → 추가 정보 → 실행
+# - macOS: 우클릭 → 열기 → 그래도 열기 (혹은 `xattr -cr <App>.app`)
+
 win:
   executableName: tensorcube-labeling-tool
+  target:
+    - target: nsis
+      arch:
+        - x64
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${name}-${version}-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # oneClick=false: 사용자가 설치 경로/시작메뉴 옵션을 확인할 수 있는 표준 인스톨러 흐름.
+  # 기본 oneClick=true는 무음 설치 + 경로 강제로 사용자 컨트롤이 줄어든다.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
 mac:
   target:
     - target: dmg
@@ -41,21 +70,55 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  # Apple Developer ID + APP-SPECIFIC-PASSWORD 확보 후 활성화.
   notarize: false
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
+
 linux:
   target:
-    - AppImage
-    - deb
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: rpm
+      arch:
+        - x64
   maintainer: Longcat2957
   category: Graphics
+  synopsis: Cross-platform data labeling tool for ML training
+  description: |
+    Standalone desktop tool for annotating images with bounding boxes
+    (axis-aligned and oriented), polygons, and keypoints. Exports YOLO,
+    COCO, DOTA formats. Built with Electron + Svelte 5.
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 deb:
   artifactName: ${name}_${version}_${arch}.${ext}
+  # Electron 39 런타임이 요구하는 시스템 라이브러리. 누락 시 설치 실패하지 않고
+  # 실행 시점에 dlopen 에러로 발견되는 문제를 사전 차단.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libdrm2
+    - libgbm1
+rpm:
+  artifactName: ${name}-${version}-${arch}.${ext}
+  # rpm 패키지 시 build-id 링크 충돌 회피 (Fedora 38+ 권장)
+  fpm:
+    - --rpm-rpmbuild-define=_build_id_links none
+
 npmRebuild: false
+
 publish:
   provider: github
   owner: Longcat2957
   repo: tensorcube-labeling-tool-shadcn
+  releaseType: release

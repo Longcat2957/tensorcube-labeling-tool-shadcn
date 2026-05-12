@@ -216,16 +216,24 @@ _"Linux/Windows/macOS 바이너리를 자동으로 찍어낸다"_
 
 **Exit 조건**: `v0.1.0` 태그 푸시 → 3개 OS 바이너리가 GitHub Release에 자동 업로드되어 다운로드 가능.
 
-### Phase 7 — 자동 업데이트 & 운영 (진행 중)
+### Phase 7 — 자동 업데이트 & 운영 (UI 완료, Obs 보류)
 
 _"사용자가 설치 후에도 최신 상태로 유지된다"_
 
 - ✅ **[Deploy] `electron-updater` 연결**: `main/index.ts`에 `autoUpdater.checkForUpdatesAndNotify()` 초기화. `is.dev`일 때는 건너뜀. `autoDownload: true`, `autoInstallOnAppQuit: true`로 조용한 업데이트.
-- ⏳ **[Deploy] 업데이트 UI**: 현재 OS 네이티브 알림만 뜸. renderer 토스트(svelte-sonner)로 "업데이트 준비됨, 재시작 시 적용" / "업데이트 확인" 수동 버튼 추가는 후속.
+- ✅ **[Deploy] 업데이트 UI (2026-05-07)**:
+  - **모듈 분리**: `services/autoUpdater.ts`로 wiring 이전. `checking-for-update`/`update-available`/`download-progress`/`update-downloaded`/`error`/`update-not-available` 6종 lifecycle 이벤트를 단일 `app:updateEvent` 채널로 renderer에 전달.
+  - **IPC**: `app:getVersion`, `app:isPackaged`, `app:checkForUpdates`(수동), `app:installUpdate`(`quitAndInstall`). `window.api.app` 으로 노출.
+  - **renderer 토스트**: `svelte-sonner` `toast.info('업데이트 다운로드 중')` / `toast.success('업데이트 준비 완료', { duration: Infinity, action: '지금 재시작' })` / `toast.error`. `not-available`은 수동 체크 직후에만(`window.dispatchEvent('app:manual-update-check')` 가드) 노출해 자동 체크 노이즈 차단.
+  - **수동 체크 메뉴**: Navigation 메뉴 끝에 "업데이트 확인" 항목 추가. 진행 중에는 RefreshCw spin 애니메이션 + disabled.
+  - **버전 표시**: Footer 우측에 `v{X.Y.Z}` 노출.
+  - **사전 버그 수정**: 기존에 `<Toaster />`가 어디에도 마운트돼 있지 않아 모든 dialog의 toast가 silent no-op이었음 — App.svelte에 `<Toaster richColors closeButton />` 마운트로 해결.
 - ⏳ **[Obs] Sentry (옵트인)**: `@sentry/electron` 미도입. 유저 유입 후 판단.
 - ⏳ **[Obs] 로그 파일**: `electron-log` 미도입.
 
-**Exit 조건**: v0.1.0 → v0.1.1 태그 푸시 시 실제 설치된 앱이 자동 업데이트를 받고 재시작 후 새 버전이 적용됨.
+**검증**: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` → 0 errors / 0 warnings / 90 tests pass / production build 성공.
+
+**Exit 조건**: v0.1.0 → v0.1.1 태그 푸시 시 실제 설치된 앱이 자동 업데이트를 받고 재시작 후 새 버전이 적용됨. (실제 릴리스 검증은 다음 태그 시점에.)
 
 ### Phase 8 — 배포 후 관찰 (지속)
 
@@ -428,6 +436,70 @@ _"미세 결함 잡기. 워크스페이스 없이도 데이터 준비 도구 사
 - StatsFilterDialog / ProjectSettingsDialog의 native `<select>` 일관성 정리.
 - `bits-ui` Dialog.Trigger `disabled={true}`가 트리거 자체를 안 보이게 만드는 동작 — `{#if}` 가드로 우회했으나, 시각적 disabled 표시(opacity-50)가 필요한 케이스가 생기면 별도 패턴 도입 필요.
 
+### Phase 17 — Export 부분 내보내기 (2026-05-07) ✅ 완료
+
+_"PDF 인쇄 페이지 범위처럼 특정 이미지 번호대만 골라 내보낸다."_
+
+- ✅ **[Shared] 이미지 번호 범위 파서**: `src/shared/imageRange.ts` 신설 — `"1-15, 19, 20"` 형식을 9자리 zero-padded ID 집합으로 변환. 콤마/하이픈, 공백 무시, 0/음수/시작>끝/비숫자 토큰 거부, 빈 입력은 "필터 없음" 의미. main/renderer 양쪽에서 동일 규칙으로 검증·필터링.
+- ✅ **[Types/IPC] `ExportOptions.imageRange?: string` 추가**: `shared/types.ts`, preload `index.d.ts`, `workspaceHandler` 프리플라이트 Pick 타입에 일괄 반영.
+- ✅ **[Export] `collectExportItems`에 `allowedIds` 파라미터**: `Set<string> | null`로 받아 라벨 파일 ID와 매칭 시 스킵. `exportWorkspace` / `previewExport` 양쪽에서 범위 파싱 후 전달. preflight는 "지정 범위 중 N개가 워크스페이스에 없거나 필터에 의해 제외" 경고 표시.
+- ✅ **[UI] ExportDialog 입력란**: "내보내기 대상" 섹션 다음에 "이미지 번호 범위 (선택)" 텍스트 입력. `$derived`로 라이브 파싱 — 빈값이면 안내, 유효하면 매칭 개수, 오류면 빨간 테두리 + 메시지. 잘못된 입력 시 "미리 확인" 버튼 비활성화.
+
+**검증**: `pnpm typecheck` → 0 errors / 0 warnings (223 files).
+
+**Exit 조건 충족**: `1-15, 19, 20` 같은 입력으로 해당 ID 이미지만 골라 내보내기 가능. 검수 완료/라벨 보유 필터와 AND 조건으로 결합. 빈 입력 시 기존 동작 유지(전체 내보내기).
+
+---
+
+### Phase 18 — SAM Click/Box 어시스턴트 (2026-05-07 착수) 🚧 진행 중
+
+_"클릭/박스 프롬프트로 SAM2.1 마스크 받아 BB 자동 생성. 라벨링 속도 ↑."_
+
+**모델 결정 (확정)**
+
+- **SAM2.1 Hiera-Tiny** ONNX (encoder 105MB / decoder 16MB). `samexporter` 추출 검증 완료.
+- 인코더 forward CPU 기준 ~500ms (1024² 이미지), 디코더 ~15ms/프롬프트 → 사전 인코딩 + 캐시 필수.
+- 임베딩 캐시 단위 = 3개 텐서 (`image_embed` + `high_res_feats_0/1`), 합 16MB/이미지. LRU 8개 = 128MB.
+
+**Phase 18-A — 인프라 (samService 골격)**
+
+- `src/main/services/sam/` — modelLoader / encoder / decoder / embeddingCache / preprocess
+- IPC 채널: `sam.encode(imageId)`, `sam.predict(embeddingKey, prompts)`, `sam.unload(embeddingKey)`
+- 의존성: `onnxruntime-node` 추가, 네이티브 빌드는 `electron-builder install-app-deps` 로 처리.
+- 좌표 변환 유틸: 캔버스 ↔ 원본 픽셀 ↔ 1024 letterbox.
+
+**Phase 18-B — BB 워크스페이스 단일 지원**
+
+- `tool: 'sam'` 추가 (`toolManager.svelte.ts`), 단축키 `S`, 커서/툴팁.
+- 클릭(positive) / Shift+클릭(negative) / 드래그(box) 프롬프트.
+- 마스크 미리보기 오버레이 (Fabric.js 별도 레이어, 반투명).
+- `Enter` 확정 → 마스크 → axis-aligned bbox → 기존 `BBAnnotation` 생성 후 저장. `Esc` 취소, `Backspace` 마지막 프롬프트 제거.
+- Footer 에 SAM 상태 표시 (`encoding…` / `ready (123ms)` / `model not loaded`).
+
+**Phase 18-C — 사전 인코딩 + 박스 프롬프트 폴리시**
+
+- 이미지 네비게이션 진입 시 다음/이전 N개 백그라운드 인코딩 (LRU 4–8).
+- 인코딩 진행 표시.
+- 박스 프롬프트 정밀화 (drag 중 디바운스 추론).
+
+**Phase 18-D — OBB / Polygon 워크스페이스 확장**
+
+- 마스크 → 컨투어 → `minAreaRect` (OBB).
+- 마스크 → 컨투어 → Douglas-Peucker 단순화 (Polygon). 단순화 강도 슬라이더.
+
+**Phase 18-E — 모델 배포 / 운영**
+
+- **현재 (Phase 18-A/B 시점)**: 기본 모델(SAM 2.1 Hiera-Tiny) 은 **electron-builder `extraResources` 로 배포판에 동봉** (`resources/sam-models/`). 앱 시작 시 `process.resourcesPath/sam-models/` 자동 인식. 우선순위는 `SAM_MODEL_DIR` env > `userData/sam-models/` > 번들 (`modelLoader.ts:resolveModelPaths`).
+- **HF Public 호스팅 도입 (대형 변형용)**:
+  - `huggingface.co/<org>/tensorcube-sam2.1-models` public repo 에 Tiny 외에 Small/Base+ 추가 변형 업로드.
+  - 사용자가 Settings 에서 변형 선택 시 `userData/sam-models/` 로 다운로드 + SHA256 검증 후 활성화.
+  - 기본 Tiny 는 그대로 번들 (오프라인 즉시 사용 보장).
+- 모델 변형 선택 UI (Tiny ↔ Small ↔ Base+).
+- GPU EP 활성화 시도 (DirectML/CUDA/CoreML 사용 가능 시).
+- multimask 후보 3개 중 IoU 최고 자동 선택, 옵션으로 사용자 선택 UI.
+
+**Exit 조건**: BB 워크스페이스에서 `S` 모드 진입 → 클릭 → 마스크 미리보기 → Enter 로 BB 라벨 1초 내 생성. 인코더 사전 캐시 hit 시 클릭→미리보기 ≤50ms.
+
 ---
 
 ## 3. 선택적 확장 (유저 피드백 이후 결정)
@@ -446,10 +518,11 @@ _"미세 결함 잡기. 워크스페이스 없이도 데이터 준비 도구 사
 
 ### 옵션 B — AI 보조 오토 라벨링 (4–6주)
 
-- **ONNX Runtime** (`onnxruntime-node` 또는 Web) 도입, main 프로세스 추론 → IPC 반환.
-- **Model Registry**: `workspace.yaml`에 `auto_model: { path, type: "yolov8" | "sam" | "yolov8-obb" }`.
-- **인터랙션**: 프레임 예측(드래프트 삽입), Click-to-Segment(SAM 계열), 배치 사전 라벨링(`_W` 저장).
-- **UX**: confidence 슬라이더, 자동 제안 색상 구분.
+> **Phase 18 (SAM Click/Box 어시스턴트)** 로 일부 착수됨. 아래는 그 외 잔여 항목.
+
+- **YOLO 계열 사전 라벨링**: 프레임 자동 예측 → 드래프트 삽입(`_W` 저장), confidence 슬라이더.
+- **Model Registry**: `workspace.yaml`에 `auto_model: { path, type: "yolov8" | "yolov8-obb" }`.
+- **자동 제안 색상 구분 UX**.
 
 **트리거**: 라벨링 속도가 주된 불만으로 드러나거나, 특정 모델 공급처가 확정될 때.
 

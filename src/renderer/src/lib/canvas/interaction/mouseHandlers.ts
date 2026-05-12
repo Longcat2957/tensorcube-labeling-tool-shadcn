@@ -7,10 +7,11 @@
  * - 스크린 변환은 렌더링 시에만 수행
  */
 
-import { Rect, Polyline, Circle, Point } from 'fabric'
+import { Rect, Polyline, Circle, Point, Text } from 'fabric'
 import type { Canvas, FabricImage, Object as FabricObject } from 'fabric'
 import type { WorkspaceManager } from '../../stores/workspace.svelte.js'
 import type { ToolManager } from '../../stores/toolManager.svelte.js'
+import type { SamAssistantManager } from '../../stores/samAssistant.svelte.js'
 import { getClassColor, hexToRgba, BOX_STYLE, type BoxRect } from '../styles/boxStyles.js'
 import { pixelToImage, createBboxFromPoints, bboxToObb } from '../coordinates.js'
 import { getImageOffset } from '../core/imageLoader.js'
@@ -26,7 +27,11 @@ export interface MouseHandlerContext {
   workspaceManager: WorkspaceManager
   toolManager: ToolManager
   drawingBox: { value: FabricObject | null }
+  /** 그리는 중 W×H 를 표시하는 ghost 텍스트 (BB/OBB 도구 전용). */
+  dimensionLabel: { value: Text | null }
   labelBoxes: Map<string, CanvasLabelObjects>
+  /** SAM 도구 활성화 시에만 사용. 다른 도구에선 무시. */
+  samAssistant?: SamAssistantManager
 }
 
 export interface MouseHandlerState {
@@ -268,6 +273,13 @@ export function handleMouseDown(
     return
   }
 
+  // SAM 도구 — 좌클릭/Shift+좌클릭 = 점, 좌클릭 드래그(임계값 초과) = 박스
+  if (toolManager.currentTool === 'sam') {
+    if (!imageObject || !context.samAssistant) return
+    handleSamMouseDown(e, context, state)
+    return
+  }
+
   // 박스 도구가 아니면 무시
   if (toolManager.currentTool !== 'box') return
   if (!imageObject) return
@@ -335,6 +347,13 @@ export function handleMouseMove(
     return
   }
 
+  // SAM 도구의 박스 드래그 진행
+  if (toolManager.currentTool === 'sam') {
+    if (!imageObject || !context.samAssistant) return
+    handleSamMouseMove(e, context, state)
+    return
+  }
+
   if (!state.isDrawing || !drawingBox.value || !imageObject) return
 
   const scale = imageObject.scaleX || 1
@@ -373,7 +392,44 @@ export function handleMouseMove(
   })
 
   drawingBox.value.setCoords()
+
+  // W × H ghost 라벨 — 박스의 우하단에 표시. 박스 면적이 너무 작으면 표시 안 함.
+  const imageW = Math.abs(modified.endX - modified.startX)
+  const imageH = Math.abs(modified.endY - modified.startY)
+  if (imageW >= 1 && imageH >= 1) {
+    const labelText = `${Math.round(imageW)} × ${Math.round(imageH)}`
+    if (!context.dimensionLabel.value) {
+      const t = new Text(labelText, {
+        fontSize: 12,
+        fontFamily: 'monospace',
+        fill: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        padding: 2,
+        selectable: false,
+        evented: false,
+        objectCaching: false,
+        excludeFromExport: true
+      })
+      context.dimensionLabel.value = t
+      fabricCanvas.add(t)
+    }
+    context.dimensionLabel.value.set({
+      text: labelText,
+      left: left + width + 4,
+      top: top + height + 4
+    })
+    context.dimensionLabel.value.setCoords()
+    fabricCanvas.bringObjectToFront(context.dimensionLabel.value)
+  }
+
   fabricCanvas.requestRenderAll()
+}
+
+/** 그리는 중 dim 라벨을 캔버스에서 제거. mouseup / cancel / overlay clear 시 호출. */
+function clearDimensionLabel(context: MouseHandlerContext): void {
+  if (!context.dimensionLabel.value) return
+  context.fabricCanvas.remove(context.dimensionLabel.value)
+  context.dimensionLabel.value = null
 }
 
 /**
@@ -384,10 +440,18 @@ export function handleMouseUp(
   context: MouseHandlerContext,
   state: MouseHandlerState
 ): void {
-  const { fabricCanvas, imageObject, workspaceManager, drawingBox } = context
+  const { fabricCanvas, imageObject, workspaceManager, drawingBox, toolManager } = context
+
+  // SAM 도구 — 점 클릭(드래그 거리 작음) 또는 박스 프롬프트 확정
+  if (toolManager.currentTool === 'sam') {
+    if (!imageObject || !context.samAssistant) return
+    handleSamMouseUp(e, context, state)
+    return
+  }
 
   if (!state.isDrawing || !drawingBox.value || !imageObject) {
     state.isDrawing = false
+    clearDimensionLabel(context)
     return
   }
 
@@ -411,6 +475,9 @@ export function handleMouseUp(
   // 최소 크기 체크
   const width = Math.abs(modified.endX - modified.startX)
   const height = Math.abs(modified.endY - modified.startY)
+
+  // dim 라벨은 어떤 결과든 mouseup 시점에 정리
+  clearDimensionLabel(context)
 
   if (width < 5 || height < 5) {
     // 너무 작으면 취소
@@ -502,7 +569,7 @@ export function updateCursorForTool(
   if (currentTool === 'pan') {
     fabricCanvas.defaultCursor = 'grab'
     fabricCanvas.hoverCursor = 'grab'
-  } else if (currentTool === 'box' || currentTool === 'polygon') {
+  } else if (currentTool === 'box' || currentTool === 'polygon' || currentTool === 'sam') {
     fabricCanvas.defaultCursor = 'crosshair'
     fabricCanvas.hoverCursor = 'crosshair'
   } else {
@@ -511,4 +578,80 @@ export function updateCursorForTool(
   }
 
   fabricCanvas.requestRenderAll()
+}
+
+// ============================================
+// SAM 어시스턴트 인터랙션
+// ============================================
+
+/**
+ * SAM 도구의 mouse-down 처리.
+ *
+ * 동작은 mouse-up 시점에 결정한다:
+ *   - 드래그 거리 < 임계값 → 점 프롬프트 (Shift = negative, 일반 = positive)
+ *   - 드래그 거리 ≥ 임계값 → 박스 프롬프트
+ *
+ * 여기선 시작점만 기록하고 isDrawing 플래그를 켠다.
+ */
+const SAM_DRAG_THRESHOLD = 5 // 이미지 픽셀
+
+function handleSamMouseDown(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): void {
+  const { fabricCanvas, imageObject } = context
+  const scale = imageObject.scaleX || 1
+  const offset = getImageOffset(imageObject)
+  const pointer = fabricCanvas.getScenePoint(e.e)
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y)
+
+  state.isDrawing = true
+  state.startX = imageCoords.x
+  state.startY = imageCoords.y
+}
+
+function handleSamMouseMove(
+  _e: { e: MouseEvent },
+  _context: MouseHandlerContext,
+  _state: MouseHandlerState
+): void {
+  // 드래그 중 박스 프롬프트의 라이브 미리보기는 후속 폴리시 (Phase 18-C 박스 정밀화) 에서.
+  // 1차는 mouse-up 에서 최종 박스만 적용.
+}
+
+function handleSamMouseUp(
+  e: { e: MouseEvent },
+  context: MouseHandlerContext,
+  state: MouseHandlerState
+): void {
+  const { fabricCanvas, imageObject, samAssistant } = context
+  if (!samAssistant) {
+    state.isDrawing = false
+    return
+  }
+  if (!state.isDrawing) return
+  state.isDrawing = false
+
+  const scale = imageObject.scaleX || 1
+  const offset = getImageOffset(imageObject)
+  const pointer = fabricCanvas.getScenePoint(e.e)
+  const imageCoords = pixelToImage(pointer.x, pointer.y, scale, offset.x, offset.y)
+
+  const dx = imageCoords.x - state.startX
+  const dy = imageCoords.y - state.startY
+  const distance = Math.hypot(dx, dy)
+
+  if (distance < SAM_DRAG_THRESHOLD) {
+    // 점 프롬프트 — Shift = negative
+    const label: 0 | 1 = e.e.shiftKey ? 0 : 1
+    samAssistant.addPoint(imageCoords.x, imageCoords.y, label)
+  } else {
+    // 박스 프롬프트
+    const x1 = Math.min(state.startX, imageCoords.x)
+    const y1 = Math.min(state.startY, imageCoords.y)
+    const x2 = Math.max(state.startX, imageCoords.x)
+    const y2 = Math.max(state.startY, imageCoords.y)
+    samAssistant.setBox([x1, y1, x2, y2])
+  }
 }

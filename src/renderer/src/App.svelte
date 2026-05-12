@@ -14,7 +14,9 @@
   import ImageListPanel from './components/ImageListPanel.svelte'
   import * as Resizable from '$lib/components/ui/resizable/index.js'
   import { TooltipProvider } from '$lib/components/ui/tooltip/index.js'
+  import { Toaster } from '$lib/components/ui/sonner/index.js'
   import { ModeWatcher } from 'mode-watcher'
+  import { toast } from 'svelte-sonner'
   import {
     createKeyboardManager,
     KEYBOARD_MANAGER_KEY
@@ -22,6 +24,10 @@
   import { createWorkspaceManager, WORKSPACE_MANAGER_KEY } from '$lib/stores/workspace.svelte.js'
   import { createToolManager, TOOL_MANAGER_KEY } from '$lib/stores/toolManager.svelte.js'
   import { createModeManager, MODE_MANAGER_KEY } from '$lib/stores/modeManager.svelte.js'
+  import {
+    createSamAssistantManager,
+    SAM_ASSISTANT_KEY
+  } from '$lib/stores/samAssistant.svelte.js'
 
   // 키보드 매니저 생성 및 Context 제공
   const keyboardManager = createKeyboardManager()
@@ -39,6 +45,14 @@
   const modeManager = createModeManager()
   setContext(MODE_MANAGER_KEY, modeManager)
 
+  // SAM 어시스턴트 매니저 생성 및 Context 제공
+  const samAssistant = createSamAssistantManager()
+  setContext(SAM_ASSISTANT_KEY, samAssistant)
+  // 모델 ready 상태 1회 조회
+  $effect(() => {
+    void samAssistant.refreshModelStatus()
+  })
+
   // Tab / Shift+Tab 모드 순환
   $effect(() => {
     const cleanups = [
@@ -55,9 +69,65 @@
       window.removeEventListener('keydown', keyboardManager.handleKeyDown)
     }
   })
+
+  // 자동 업데이트 이벤트 → 토스트.
+  // - available: 다운로드 시작 안내
+  // - downloaded: 재시작 액션 토스트(영구)
+  // - not-available: 수동 체크 직후에만 노출 (자동 체크는 노이즈가 되어 무시)
+  // - error: 에러
+  // 'checking' / 'progress' 는 토스트하지 않음.
+  $effect(() => {
+    let manualCheckRequested = false
+
+    const off = window.api.app.onUpdateEvent((ev) => {
+      if (ev.type === 'available') {
+        toast.info('업데이트 다운로드 중', {
+          description: `새 버전 ${ev.version ?? ''}을(를) 백그라운드에서 받아요.`
+        })
+        return
+      }
+      if (ev.type === 'downloaded') {
+        toast.success('업데이트 준비 완료', {
+          description: `${ev.version ?? ''} 새 버전이 다운로드되었습니다. 지금 재시작하면 적용됩니다.`,
+          duration: Infinity,
+          action: {
+            label: '지금 재시작',
+            onClick: () => {
+              void window.api.app.installUpdate()
+            }
+          }
+        })
+        return
+      }
+      if (ev.type === 'not-available' && manualCheckRequested) {
+        manualCheckRequested = false
+        toast.message('이미 최신 버전입니다.', {
+          description: ev.version ? `현재 버전: ${ev.version}` : undefined
+        })
+        return
+      }
+      if (ev.type === 'error') {
+        toast.error('업데이트 확인 실패', {
+          description: ev.message
+        })
+        return
+      }
+    })
+
+    function onManualCheck(): void {
+      manualCheckRequested = true
+    }
+    window.addEventListener('app:manual-update-check', onManualCheck)
+
+    return () => {
+      off()
+      window.removeEventListener('app:manual-update-check', onManualCheck)
+    }
+  })
 </script>
 
 <ModeWatcher />
+<Toaster richColors closeButton />
 <TooltipProvider>
   <div
     class="h-screen flex flex-col font-sans overflow-hidden"

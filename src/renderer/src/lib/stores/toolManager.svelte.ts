@@ -10,13 +10,15 @@ export type ToolType =
   | 'box' // 박스 생성 도구 (B)
   | 'polygon' // Polygon 생성 도구 (Polygon 모드 전용)
   | 'pan' // 패닝 도구
+  | 'sam' // SAM 어시스턴트 — 클릭/박스 프롬프트 기반 자동 박스 (S)
 
 // 도구별 커서 매핑
 const TOOL_CURSORS: Record<ToolType, string> = {
   select: 'default',
   box: 'crosshair',
   polygon: 'crosshair',
-  pan: 'grab'
+  pan: 'grab',
+  sam: 'crosshair'
 }
 
 // 도구별 설명
@@ -24,7 +26,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolType, string> = {
   select: '선택 도구',
   box: '박스 생성 도구',
   polygon: 'Polygon 생성 도구',
-  pan: '이동 도구'
+  pan: '이동 도구',
+  sam: 'SAM 어시스턴트'
 }
 
 // 마우스 좌표 인터페이스 (원본 이미지 픽셀 좌표)

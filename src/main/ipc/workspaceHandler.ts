@@ -95,7 +95,7 @@ export function registerWorkspaceHandlers(): void {
       workspacePath: string,
       options: Pick<
         ExportOptions,
-        'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'split'
+        'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'imageRange' | 'split'
       >
     ) => {
       return await previewExport(workspacePath, options)

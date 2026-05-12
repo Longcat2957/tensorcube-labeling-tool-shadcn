@@ -84,7 +84,8 @@ export function updateBoxPosition(
 
 /**
  * 뱃지 위치 업데이트
- * bbox의 left-top point 위쪽에 표시
+ * bbox의 left-top point 위쪽에 표시.
+ * userScale: 사용자 슬라이더 크기 가중치. 0이면 visible=false.
  */
 export function updateBadgePosition(
   badge: BadgeObjects,
@@ -93,7 +94,8 @@ export function updateBadgePosition(
   offsetX: number,
   offsetY: number,
   isBB: boolean,
-  className: string = ''
+  className: string = '',
+  userScale: number = 1
 ): void {
   let leftX: number, topY: number
 
@@ -122,27 +124,31 @@ export function updateBadgePosition(
     topY = topmost.y
   }
 
-  const bs = badgeScale(scale)
+  const bs = badgeScale(scale, userScale)
+  const visible = userScale > 0
   const screenX = leftX * scale + offsetX
   const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs
 
-  // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
+  // 모든 길이는 한 번만 bs 로 스케일. textWidth 는 실제 렌더 폰트 크기(BADGE_FONT_SIZE * bs)
+  // 기준이라 여기에 다시 bs를 곱하지 않는다 — 이중 스케일 방지.
   const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs
+  const badgeWidth = BADGE_PADDING * 2 * bs + textWidth
 
   badge.background.set({
     left: screenX,
     top: screenY,
     width: badgeWidth,
     height: BADGE_HEIGHT * bs,
-    rx: 4 * bs,
-    ry: 4 * bs
+    rx: 3 * bs,
+    ry: 3 * bs,
+    visible
   })
 
   badge.text.set({
     left: screenX + BADGE_PADDING * bs,
     top: screenY + (BADGE_HEIGHT / 2) * bs,
-    fontSize: BADGE_FONT_SIZE * bs
+    fontSize: BADGE_FONT_SIZE * bs,
+    visible
   })
 }
 

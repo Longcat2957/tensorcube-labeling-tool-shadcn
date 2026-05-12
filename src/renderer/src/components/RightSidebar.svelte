@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext } from 'svelte'
   import { Eye, EyeOff, Trash2, X } from '@lucide/svelte'
+  import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import * as Resizable from '$lib/components/ui/resizable/index.js'
   import { RadioGroup, RadioGroupItem } from '$lib/components/ui/radio-group/index.js'
@@ -8,9 +9,25 @@
   import { Kbd } from '$lib/components/ui/kbd/index.js'
   import { ScrollArea } from '$lib/components/ui/scroll-area/index.js'
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
+  import { MODE_MANAGER_KEY, type ModeManager } from '$lib/stores/modeManager.svelte.js'
   import Minimap from './Minimap.svelte'
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
+  const modeManager = getContext<ModeManager>(MODE_MANAGER_KEY)
+
+  // 클래스 라디오 클릭 — 키보드 'select-class' 와 같은 의미:
+  //   1) 다음에 그릴 박스용 draw class 변경
+  //   2) edit 모드 + 선택된 라벨(들) 있으면 일괄 reclass
+  // 키보드 핸들러 (CanvasArea.svelte) 와 동작을 1:1 로 맞춘다.
+  function handleClassChange(value: string) {
+    const newClassId = parseInt(value)
+    workspaceManager.setSelectedClassId(newClassId)
+    if (modeManager.current !== 'edit') return
+    const selectedIds = workspaceManager.selectedLabelIds
+    if (selectedIds.length > 0) {
+      workspaceManager.setLabelClasses(selectedIds, newClassId)
+    }
+  }
 
   // 라벨 선택 (클릭 시, Shift 누르면 다중 토글)
   function handleLabelClick(labelId: string, event: MouseEvent | KeyboardEvent) {
@@ -60,13 +77,14 @@
               {#if workspaceManager.classList.length > 0}
                 <RadioGroup
                   value={String(workspaceManager.selectedClassId)}
-                  onValueChange={(value) => workspaceManager.setSelectedClassId(parseInt(value))}
+                  onValueChange={handleClassChange}
                   class="gap-1"
                   aria-label="클래스 선택"
                 >
                   {#each workspaceManager.classList as cls, i (cls.id)}
+                    {@const classHidden = workspaceManager.isClassHidden(cls.id)}
                     <div
-                      class="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors cursor-pointer {workspaceManager.selectedClassId ===
+                      class="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors {workspaceManager.selectedClassId ===
                       cls.id
                         ? 'bg-muted border border-primary/50'
                         : 'hover:bg-muted/50 border border-transparent'}"
@@ -78,7 +96,9 @@
                       />
                       <Label
                         for={`class-${cls.id}`}
-                        class="flex items-center gap-2 cursor-pointer flex-1 text-sm"
+                        class="flex items-center gap-2 cursor-pointer flex-1 text-sm {classHidden
+                          ? 'opacity-50'
+                          : ''}"
                       >
                         <span
                           class="w-2.5 h-2.5 rounded-sm shrink-0"
@@ -88,6 +108,31 @@
                         <span class="flex-1">{cls.name}</span>
                         <Kbd class="text-[10px] px-1.5 py-0.5">{i + 1}</Kbd>
                       </Label>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          {#snippet child({ props })}
+                            <button
+                              {...props}
+                              type="button"
+                              class="p-0.5 rounded hover:bg-muted-foreground/10 text-muted-foreground"
+                              onclick={(e) => {
+                                e.stopPropagation()
+                                workspaceManager.toggleClassVisibility(cls.id)
+                              }}
+                              aria-label="{cls.name} 클래스 {classHidden ? '보이기' : '숨기기'}"
+                            >
+                              {#if classHidden}
+                                <EyeOff class="size-3.5" />
+                              {:else}
+                                <Eye class="size-3.5" />
+                              {/if}
+                            </button>
+                          {/snippet}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {classHidden ? '이 클래스 표시' : '이 클래스 숨기기'}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   {/each}
                 </RadioGroup>

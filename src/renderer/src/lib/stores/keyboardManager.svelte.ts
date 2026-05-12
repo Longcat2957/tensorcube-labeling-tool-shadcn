@@ -8,15 +8,22 @@
 export type KeyboardAction =
   | 'prev-image' // A / PageUp - 이전 이미지
   | 'next-image' // D / PageDown - 다음 이미지
+  | 'prev-unfinished' // Shift+A - 이전 미완료 이미지 (_C 건너뜀)
+  | 'next-unfinished' // Shift+D - 다음 미완료 이미지 (_C 건너뜀)
   | 'select-class' // 1-9 - 클래스 직접 선택 (payload = '1'..'9')
   | 'select-tool' // V - 선택 도구
   | 'box-tool' // B - 박스 생성 도구
+  | 'sam-tool' // S - SAM 어시스턴트
+  | 'sam-advance' // Space - SAM stage 진행 (1→2 추론, 2→3 확정)
+  | 'sam-cancel' // Esc - SAM 프롬프트 취소
+  | 'sam-undo-prompt' // Backspace - 마지막 SAM 프롬프트 제거 (라벨 삭제 충돌 회피)
   | 'pan-tool' // P - 패닝 도구
   | 'undo' // Ctrl+Z - 실행 취소
   | 'redo' // Ctrl+Y - 다시 실행
   | 'delete' // Delete - 선택된 라벨 삭제
   | 'toggle-labels' // H - 라벨 숨기기/보기
-  | 'center-image' // C - 이미지 중앙 정렬
+  | 'center-image' // C - 이미지 중앙 정렬 / fit
+  | 'zoom-selection' // Z - 선택된 라벨로 줌인 (작은 박스 검수용)
   | 'next-mode' // Tab - 다음 모드
   | 'prev-mode' // Shift+Tab - 이전 모드
   | 'save' // Ctrl+S - 현재 라벨 저장 (_C 처리 아님, 수동 flush)
@@ -30,15 +37,22 @@ export type KeyboardAction =
 export const ACTION_DESCRIPTIONS: Record<KeyboardAction, string> = {
   'prev-image': '이전 이미지',
   'next-image': '다음 이미지',
+  'prev-unfinished': '이전 미완료 이미지',
+  'next-unfinished': '다음 미완료 이미지',
   'select-class': '클래스 선택',
   'select-tool': '선택 도구',
   'box-tool': '박스 생성 도구',
+  'sam-tool': 'SAM 어시스턴트',
+  'sam-advance': 'SAM 진행 (추론 → 확정)',
+  'sam-cancel': 'SAM 프롬프트 취소',
+  'sam-undo-prompt': '마지막 SAM 프롬프트 제거',
   'pan-tool': '이동 도구',
   undo: '실행 취소',
   redo: '다시 실행',
   delete: '선택된 라벨 삭제',
   'toggle-labels': '라벨 보기/숨기기',
-  'center-image': '이미지 중앙 정렬',
+  'center-image': '이미지 fit',
+  'zoom-selection': '선택 라벨로 줌',
   'next-mode': '다음 모드',
   'prev-mode': '이전 모드',
   save: '저장',
@@ -53,15 +67,22 @@ export const ACTION_DESCRIPTIONS: Record<KeyboardAction, string> = {
 export const ACTION_SHORTCUTS: Record<KeyboardAction, string> = {
   'prev-image': 'A / PageUp',
   'next-image': 'D / PageDown',
+  'prev-unfinished': 'Shift+A',
+  'next-unfinished': 'Shift+D',
   'select-class': '1-9',
   'select-tool': 'V',
   'box-tool': 'B',
+  'sam-tool': 'S',
+  'sam-advance': 'Space',
+  'sam-cancel': 'Esc',
+  'sam-undo-prompt': 'Backspace',
   'pan-tool': 'P',
   undo: 'Ctrl+Z',
   redo: 'Ctrl+Y',
-  delete: 'Delete',
+  delete: 'Delete / Backspace',
   'toggle-labels': 'H',
   'center-image': 'C',
+  'zoom-selection': 'Z',
   'next-mode': 'Tab',
   'prev-mode': 'Shift+Tab',
   save: 'Ctrl+S',
@@ -92,10 +113,14 @@ const KEY_BINDINGS: Record<string, KeyboardAction> = {
   V: 'select-tool',
   b: 'box-tool',
   B: 'box-tool',
+  s: 'sam-tool',
+  S: 'sam-tool',
   p: 'pan-tool',
   P: 'pan-tool',
   c: 'center-image',
   C: 'center-image',
+  z: 'zoom-selection',
+  Z: 'zoom-selection',
   Delete: 'delete',
   Backspace: 'delete',
   h: 'toggle-labels',
@@ -180,6 +205,12 @@ export function createKeyboardManager() {
     // Shift+Tab 처리
     else if (event.shiftKey && key === 'Tab') {
       action = 'prev-mode'
+    }
+    // Shift+A / Shift+D → 미완료 이미지 jump
+    else if (event.shiftKey && (key === 'A' || key === 'a')) {
+      action = 'prev-unfinished'
+    } else if (event.shiftKey && (key === 'D' || key === 'd')) {
+      action = 'next-unfinished'
     }
     // 숫자키 1-9 → select-class with payload
     else if (key >= '1' && key <= '9') {

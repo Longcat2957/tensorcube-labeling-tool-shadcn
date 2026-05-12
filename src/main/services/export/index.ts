@@ -14,6 +14,7 @@ import type {
   BBAnnotation,
   OBBAnnotation
 } from '../../../shared/types.js'
+import { parseImageRange } from '../../../shared/imageRange.js'
 import {
   collectExportItems,
   shuffleArray,
@@ -50,15 +51,27 @@ export async function exportWorkspace(
     }
     console.log('[Export] 설정 로드 완료:', config)
 
+    // 이미지 번호 범위 파싱
+    const rangeParsed = parseImageRange(options.imageRange)
+    if (rangeParsed.errors.length > 0) {
+      return {
+        success: false,
+        error: `이미지 번호 범위 형식 오류: ${rangeParsed.errors.join(', ')}`
+      }
+    }
+
     // 내보낼 아이템 수집
     console.log('[Export] 아이템 수집 중...', {
       includeCompletedOnly: options.includeCompletedOnly,
-      requireAnnotations: options.requireAnnotations
+      requireAnnotations: options.requireAnnotations,
+      imageRange: options.imageRange,
+      rangeIdsCount: rangeParsed.ids?.size ?? null
     })
     const items = await collectExportItems(
       workspacePath,
       options.includeCompletedOnly,
-      options.requireAnnotations ?? false
+      options.requireAnnotations ?? false,
+      rangeParsed.ids
     )
     console.log('[Export] 수집된 아이템 수:', items.length)
 
@@ -204,7 +217,7 @@ export async function previewExport(
   workspacePath: string,
   options: Pick<
     ExportOptions,
-    'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'split'
+    'includeCompletedOnly' | 'requireAnnotations' | 'outOfBounds' | 'imageRange' | 'split'
   >
 ): Promise<ExportPreflight> {
   const warnings: string[] = []
@@ -214,12 +227,27 @@ export async function previewExport(
     warnings.push('workspace.yaml을 읽을 수 없습니다.')
   }
 
+  const rangeParsed = parseImageRange(options.imageRange)
+  if (rangeParsed.errors.length > 0) {
+    warnings.push(`이미지 번호 범위 형식 오류: ${rangeParsed.errors.join(', ')}`)
+  }
+
   const items = await collectExportItems(
     workspacePath,
     options.includeCompletedOnly,
-    options.requireAnnotations ?? false
+    options.requireAnnotations ?? false,
+    rangeParsed.errors.length === 0 ? rangeParsed.ids : null
   )
   const totalItems = items.length
+
+  if (rangeParsed.ids && rangeParsed.errors.length === 0) {
+    const missing = rangeParsed.ids.size - totalItems
+    if (missing > 0) {
+      warnings.push(
+        `지정한 범위 중 ${missing}개 이미지가 워크스페이스에 없거나 필터(검수 완료/라벨 보유)에 의해 제외되었습니다.`
+      )
+    }
+  }
 
   const splitCountsDummy: ExportableItemsCountedBySplit = { train: 0, val: 0, test: 0 }
   // assignSplits는 item.split을 mutate하므로 shallow-copy 배열에 대해 실행

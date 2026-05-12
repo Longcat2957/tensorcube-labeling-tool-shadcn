@@ -104,16 +104,19 @@ export function assignSplits(
 /**
  * Export 아이템 수집
  * 빈 어노테이션도 기본적으로 포함하나, requireAnnotations=true 면 어노테이션이 있는 항목만 포함한다.
+ * allowedIds 가 주어지면 해당 9자리 ID 집합에 속한 이미지만 수집한다.
  */
 export async function collectExportItems(
   workspacePath: string,
   includeCompletedOnly: boolean,
-  requireAnnotations: boolean = false
+  requireAnnotations: boolean = false,
+  allowedIds: Set<string> | null = null
 ): Promise<ExportableItem[]> {
   console.log('[Export] collectExportItems 시작:', {
     workspacePath,
     includeCompletedOnly,
-    requireAnnotations
+    requireAnnotations,
+    allowedIdsCount: allowedIds?.size ?? null
   })
 
   const labelDir = join(workspacePath, LABEL_DIR)
@@ -139,6 +142,7 @@ export async function collectExportItems(
     if (includeCompletedOnly && !file.endsWith('_C.json')) continue
 
     const imageId = file.replace(/(_C|_W)?\.json$/, '')
+    if (allowedIds && !allowedIds.has(imageId)) continue
     const labelData = await readJsonFile<LabelData>(join(labelDir, file))
 
     // labelData가 없는 경우만 건너뜀 (빈 어노테이션은 허용)
@@ -348,8 +352,8 @@ export function clampBbox(bbox: ScaledBbox, imageSize: ScaledSize): ScaledBbox {
 }
 
 /**
- * YOLO 정규화 좌표를 [0, 1] 범위로 clamp
- * w, h는 음수가 되지 않도록 보장
+ * YOLO 정규화 좌표를 [0, 1] 범위로 clip
+ * 픽셀 공간 clamp(clampBbox) 와 의미적으로 동일하게 동작 — 박스 네 변을 [0,1] 로 자르고 cx/cy/width/height 재계산.
  */
 export function clampYoloNormalized(normalized: {
   cx: number
@@ -359,13 +363,15 @@ export function clampYoloNormalized(normalized: {
 }): { cx: number; cy: number; width: number; height: number } {
   const halfW = Math.max(0, normalized.width) / 2
   const halfH = Math.max(0, normalized.height) / 2
-  const cx = Math.max(halfW, Math.min(1 - halfW, normalized.cx))
-  const cy = Math.max(halfH, Math.min(1 - halfH, normalized.cy))
+  const x1 = Math.max(0, Math.min(1, normalized.cx - halfW))
+  const x2 = Math.max(0, Math.min(1, normalized.cx + halfW))
+  const y1 = Math.max(0, Math.min(1, normalized.cy - halfH))
+  const y2 = Math.max(0, Math.min(1, normalized.cy + halfH))
   return {
-    cx,
-    cy,
-    width: Math.max(0, Math.min(cx + halfW, 1) - Math.max(cx - halfW, 0)) * 2,
-    height: Math.max(0, Math.min(cy + halfH, 1) - Math.max(cy - halfH, 0)) * 2
+    cx: (x1 + x2) / 2,
+    cy: (y1 + y2) / 2,
+    width: x2 - x1,
+    height: y2 - y1
   }
 }
 

@@ -8,7 +8,7 @@
  * - 스트로크 보정 없이 정확한 좌표 사용
  */
 
-import { Rect, Text } from 'fabric'
+import { Rect, Shadow, Text } from 'fabric'
 import type { BBAnnotation, OBBAnnotation, PolygonAnnotation } from '../stores/workspace.svelte.js'
 import { bboxToScreen, obbToScreen } from './coordinates.js'
 import {
@@ -20,7 +20,8 @@ import {
   type BadgeObjects,
   BADGE_HEIGHT,
   BADGE_PADDING,
-  BADGE_FONT_SIZE
+  BADGE_FONT_SIZE,
+  BADGE_BG_ALPHA
 } from './styles/boxStyles.js'
 
 // ============================================
@@ -138,14 +139,16 @@ export function createOBBRect(
 
 /**
  * 라벨 뱃지 생성 (클래스 이름 표시)
- * bbox의 left-top point 위쪽에 표시
+ * bbox의 left-top point 위쪽에 표시.
+ * userScale: 사용자가 슬라이더로 지정한 크기 가중치(0~1.5). 0이면 visible=false 로 숨김.
  */
 export function createLabelBadge(
   annotation: BBAnnotation | OBBAnnotation | PolygonAnnotation,
   className: string,
   scale: number,
   offsetX: number,
-  offsetY: number
+  offsetY: number,
+  userScale: number = 1
 ): BadgeObjects {
   const color = getClassColor(annotation.class_id)
 
@@ -189,17 +192,19 @@ export function createLabelBadge(
     topY = 0
   }
 
-  const bs = badgeScale(scale)
+  const bs = badgeScale(scale, userScale)
+  const visible = userScale > 0
 
   // 스크린 좌표로 변환 (위치는 여전히 scale 기준)
   const screenX = leftX * scale + offsetX
   const screenY = topY * scale + offsetY - BADGE_HEIGHT * bs
 
-  // 텍스트 너비 계산 (뱃지 크기는 bs 기준)
+  // 모든 길이는 한 번만 bs 로 스케일. textWidth 는 실제 렌더 폰트 크기(BADGE_FONT_SIZE * bs)
+  // 기준이라 여기에 다시 bs를 곱하지 않는다 — 이중 스케일 방지.
   const textWidth = className.length * BADGE_FONT_SIZE * 0.6 * bs
-  const badgeWidth = (BADGE_PADDING * 2 + textWidth) * bs
+  const badgeWidth = BADGE_PADDING * 2 * bs + textWidth
 
-  // 배경
+  // 배경 — 살짝 투명한 색 + 옅은 그림자로 가독성 유지하며 원본 이미지 가림 최소화
   const background = new Rect({
     left: screenX,
     top: screenY,
@@ -207,11 +212,13 @@ export function createLabelBadge(
     height: BADGE_HEIGHT * bs,
     originX: 'left',
     originY: 'top',
-    fill: color,
-    rx: 4 * bs,
-    ry: 4 * bs,
+    fill: hexToRgba(color, BADGE_BG_ALPHA),
+    rx: 3 * bs,
+    ry: 3 * bs,
     selectable: false,
-    evented: false
+    evented: false,
+    visible,
+    shadow: new Shadow({ color: 'rgba(0,0,0,0.25)', blur: 3, offsetX: 0, offsetY: 1 })
   })
 
   // 텍스트
@@ -225,7 +232,8 @@ export function createLabelBadge(
     selectable: false,
     evented: false,
     fontFamily: 'Arial, sans-serif',
-    fontWeight: 'bold'
+    fontWeight: '600',
+    visible
   })
 
   return { background, text }

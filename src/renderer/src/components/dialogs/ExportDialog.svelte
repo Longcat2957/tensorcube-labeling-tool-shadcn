@@ -7,6 +7,7 @@
   import { Label } from '$lib/components/ui/label/index.js'
   import { RadioGroup, RadioGroupItem } from '$lib/components/ui/radio-group/index.js'
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
+  import { parseImageRange } from '../../../../shared/imageRange'
   import { ArrowDownToLine } from '@lucide/svelte'
 
   const { children }: { children: Snippet } = $props()
@@ -56,8 +57,12 @@
   let includeCompletedOnly = $state(false)
   let requireAnnotations = $state(false)
   let outOfBounds = $state<'clip' | 'skip' | 'none'>('clip')
+  let imageRange = $state('')
   let exporting = $state(false)
   let exportName = $state('')
+
+  const imageRangeParsed = $derived(parseImageRange(imageRange))
+  const imageRangeInvalid = $derived(imageRangeParsed.errors.length > 0)
 
   // 프리플라이트 상태
   interface PreflightResult {
@@ -107,6 +112,11 @@
       return
     }
 
+    if (imageRangeInvalid) {
+      toast.error(`이미지 번호 범위 오류: ${imageRangeParsed.errors[0]}`)
+      return
+    }
+
     const outputPath = await window.api.dialog.selectExportFolder()
     if (!outputPath) return
 
@@ -116,6 +126,7 @@
         includeCompletedOnly,
         requireAnnotations,
         outOfBounds,
+        imageRange: imageRange.trim() || undefined,
         split: { train: trainRatio, val: valRatio, test: testRatio }
       })
       preflight = result
@@ -145,6 +156,7 @@
         height: resizeHeight
       },
       outOfBounds,
+      imageRange: imageRange.trim() || undefined,
       split: {
         train: trainRatio,
         val: valRatio,
@@ -309,6 +321,35 @@
         </p>
       </div>
 
+      <!-- 이미지 번호 범위 (선택) -->
+      <div class="space-y-2">
+        <Label for="image-range">이미지 번호 범위 (선택)</Label>
+        <input
+          id="image-range"
+          type="text"
+          bind:value={imageRange}
+          placeholder="예: 1-15, 19, 20  (비우면 전체)"
+          class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring {imageRangeInvalid
+            ? 'border-destructive focus-visible:ring-destructive'
+            : ''}"
+        />
+        {#if imageRangeInvalid}
+          <p class="text-xs text-destructive">
+            {imageRangeParsed.errors.join(' · ')}
+          </p>
+        {:else if imageRangeParsed.ids}
+          <p class="text-xs text-muted-foreground">
+            {imageRangeParsed.count}개 이미지가 범위에 포함됩니다. (실제 워크스페이스 보유 이미지 중
+            교집합만 내보냅니다.)
+          </p>
+        {:else}
+          <p class="text-xs text-muted-foreground">
+            PDF 인쇄처럼 콤마(,)와 하이픈(-)으로 작성합니다. 예: <code>1-15, 19, 20</code>. 비우면
+            전체 이미지가 대상이 됩니다.
+          </p>
+        {/if}
+      </div>
+
       <!-- 범위 초과 박스 처리 -->
       <div class="space-y-2">
         <Label>범위 초과 박스 처리</Label>
@@ -465,7 +506,9 @@
         >
         <Button
           onclick={handlePreflight}
-          disabled={checkingPreflight || trainRatio + valRatio + testRatio !== 100}
+          disabled={checkingPreflight ||
+            trainRatio + valRatio + testRatio !== 100 ||
+            imageRangeInvalid}
         >
           <ArrowDownToLine class="size-4 mr-1" />
           {checkingPreflight ? '집계 중...' : '미리 확인'}

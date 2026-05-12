@@ -32,6 +32,7 @@ export interface WorkspaceApi {
     options: Pick<ExportOptions, 'includeCompletedOnly' | 'split'> & {
       requireAnnotations?: boolean
       outOfBounds?: 'clip' | 'skip' | 'none'
+      imageRange?: string
     }
   ) => Promise<ExportPreflight>
   getRecent: () => Promise<RecentWorkspace[]>
@@ -290,12 +291,90 @@ export interface UtilitiesApi {
   analyzeQuality: (options: QualityOptionsRenderer) => Promise<QualityResultRenderer>
 }
 
+export type UpdateEventType =
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'progress'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateEvent {
+  type: UpdateEventType
+  version?: string
+  percent?: number
+  message?: string
+}
+
+export interface AppApi {
+  getVersion: () => Promise<string>
+  isPackaged: () => Promise<boolean>
+  checkForUpdates: () => Promise<{
+    ok: boolean
+    reason?: 'dev' | 'error' | 'not-downloaded'
+    version?: string | null
+    message?: string
+  }>
+  installUpdate: () => Promise<{ ok: boolean; reason?: string }>
+  onUpdateEvent: (cb: (event: UpdateEvent) => void) => () => void
+}
+
+// SAM 어시스턴트
+export interface SamPoint {
+  x: number
+  y: number
+  label: 0 | 1
+}
+export interface SamPrompt {
+  points: SamPoint[]
+  box?: [number, number, number, number]
+}
+export interface SamMask {
+  width: number
+  height: number
+  data: Uint8Array
+}
+export interface SamPredictionResult {
+  mask: SamMask
+  score: number
+  ms: number
+}
+export interface SamEncodeResult {
+  embeddingKey: string
+  ms: number
+  cached: boolean
+}
+export interface SamModelStatus {
+  id: string
+  displayName: string
+  encoderPath: string
+  decoderPath: string
+  inputSize: number
+  loaded: boolean
+  source: 'env' | 'user' | 'bundled' | 'missing'
+  ready: boolean
+  filesOk: { ok: boolean; reason?: string }
+}
+
+export interface SamApi {
+  checkReady: () => Promise<SamModelStatus>
+  encode: (
+    workspacePath: string,
+    imageFilename: string,
+    embeddingKey: string
+  ) => Promise<SamEncodeResult>
+  predict: (embeddingKey: string, prompt: SamPrompt) => Promise<SamPredictionResult>
+  unload: (embeddingKey: string) => Promise<{ success: boolean }>
+}
+
 export interface Api {
   dialog: DialogApi
   workspace: WorkspaceApi
   label: LabelApi
   utils: UtilsApi
   utilities: UtilitiesApi
+  sam: SamApi
+  app: AppApi
 }
 
 // Types from main process

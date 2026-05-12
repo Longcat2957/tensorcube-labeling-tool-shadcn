@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, onMount, tick } from 'svelte'
+  import { getContext, onMount, tick, untrack } from 'svelte'
   import { WORKSPACE_MANAGER_KEY, type WorkspaceManager } from '$lib/stores/workspace.svelte.js'
 
   const workspaceManager = getContext<WorkspaceManager>(WORKSPACE_MANAGER_KEY)
@@ -18,6 +18,19 @@
 
   const list = $derived(workspaceManager.filteredImageList)
   const total = $derived(list.length)
+
+  // imageList 의 id → fullIdx 인덱스. visibleItems 계산 시 O(1) 룩업으로 사용.
+  // 기존 findIndex 는 O(n) 이라 1만 장 × 50 가시 항목 = 50만 비교/스크롤이 주요 렉 원인.
+  const fullIdxById = $derived.by(() => {
+    // 반응성 안 됨 — derived 안에서 즉시 채워 즉시 사용하는 lookup 테이블이라 plain Map 사용.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const map = new Map<string, number>()
+    const fullList = workspaceManager.imageList
+    for (let i = 0; i < fullList.length; i++) {
+      map.set(fullList[i].id, i)
+    }
+    return map
+  })
 
   const colsPerRow = $derived(
     Math.max(1, Math.floor((viewportWidth + COL_GAP) / (THUMB_SIZE + COL_GAP)))
@@ -38,14 +51,11 @@
 
   const visibleItems = $derived.by(() => {
     const out: { idx: number; id: string; filename: string; status: string }[] = []
-    const fullList = workspaceManager.imageList
     for (let i = startIdx; i < endIdx; i++) {
       const img = list[i]
       if (!img) continue
-      // currentImageIndex 비교용으로 원본 idx 매핑
-      const fullIdx = fullList.findIndex((x) => x.id === img.id)
       out.push({
-        idx: fullIdx >= 0 ? fullIdx : i,
+        idx: fullIdxById.get(img.id) ?? i,
         id: img.id,
         filename: img.filename,
         status: img.status
@@ -76,12 +86,19 @@
     }
   }
 
-  // 워크스페이스 전환 시 stale URL 캐시 비우기
+  // 워크스페이스 전환 시 stale URL 캐시 비우기.
+  //
+  // CRITICAL: 캐시 정리 작업은 untrack 로 감싸야 함.
+  // $effect 안에서 Object.keys(thumbUrls) / thumbUrls[k] 읽기는 Svelte 5 proxy 의
+  // ownKeys 트랩을 통해 thumbUrls 의 키 변경 전체를 구독해버린다.
+  // 그러면 ensureThumb 가 thumbUrls[id] = url 로 키를 추가하는 순간 effect 가
+  // 재실행되어 방금 추가한 키를 삭제 → 무한 사이클 + lag + 썸네일 미표시.
   $effect(() => {
-    // workspacePath 의존성 — 변경 시 effect 재실행
-    void workspaceManager.workspacePath
-    for (const k of Object.keys(thumbUrls)) delete thumbUrls[k]
-    pending.clear()
+    void workspaceManager.workspacePath // 유일한 reactive dep
+    untrack(() => {
+      for (const k of Object.keys(thumbUrls)) delete thumbUrls[k]
+      pending.clear()
+    })
   })
 
   // 보이는 항목들의 썸네일을 보장
@@ -91,11 +108,11 @@
     }
   })
 
-  function handleScroll() {
+  function handleScroll(): void {
     scrollTop = scrollEl.scrollTop
   }
 
-  async function goto(idx: number) {
+  async function goto(idx: number): Promise<void> {
     workspaceManager.setGridViewActive(false)
     await workspaceManager.goToImage(idx)
   }
@@ -159,7 +176,7 @@
               title={item.filename}
             >
               <div
-                class="bg-muted/50 flex items-center justify-center"
+                class="bg-muted/50 flex items-center justify-center relative"
                 style="width: {THUMB_SIZE}px; height: {THUMB_SIZE}px;"
               >
                 {#if thumbUrls[item.id]}
@@ -168,9 +185,14 @@
                     alt={item.id}
                     class="max-w-full max-h-full object-contain"
                     loading="lazy"
+                    decoding="async"
                   />
                 {:else}
-                  <span class="text-xs text-muted-foreground">…</span>
+                  <!-- Skeleton: animate-pulse 그라디언트로 로딩 표시 -->
+                  <div
+                    class="absolute inset-0 animate-pulse bg-gradient-to-br from-muted/40 via-muted/60 to-muted/40"
+                    aria-hidden="true"
+                  ></div>
                 {/if}
               </div>
               <div class="px-2 py-1 flex items-center gap-1 text-[10px]">
