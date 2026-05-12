@@ -1,6 +1,6 @@
 {
   "name": "tensorcube-labeling-tool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cross-platform data labeling tool (BB / OBB) for training-data annotation",
   "main": "./out/main/index.js",
   "author": "Longcat2957",
