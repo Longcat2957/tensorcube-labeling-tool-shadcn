@@ -14,11 +14,21 @@ on:
 permissions:
   contents: write
 
+# 같은 ref(태그)에 대한 동시 release를 직렬화. 태그를 빠르게 두 번 푸시하거나
+# dispatch가 겹쳐도 충돌 없이 순차 처리.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # tag push: GitHub Release에 게시. dispatch: 로컬 artifact만.
+  PUBLISH: ${{ github.event_name == 'push' && 'always' || 'never' }}
+
 jobs:
   build:
     name: Build · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -39,6 +49,27 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # Electron(~120MB) + electron-builder 캐시 재사용으로 빌드 시간 절감.
+      # 캐시 키는 OS별 + lockfile 해시. lockfile 변경 시 자연스럽게 무효화.
+      - name: Cache electron / electron-builder
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-cache-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-cache-${{ runner.os }}-
+
+      # rpm 패키지 빌드용 (Fedora/RHEL/openSUSE 타깃)
+      - name: Install rpm tooling (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
@@ -48,24 +79,26 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build (Linux)
+      - name: Compile sources
+        run: pnpm exec electron-vite build
+
+      - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: pnpm build:linux
+        run: pnpm exec electron-builder --linux --publish ${{ env.PUBLISH }}
         env:
-          # Publish only on tag push; workflow_dispatch stays local
-          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (Windows)
+      - name: Package (Windows)
         if: matrix.os == 'windows-latest'
-        run: pnpm build:win
+        run: pnpm exec electron-builder --win --publish ${{ env.PUBLISH }}
         env:
-          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (macOS)
+      - name: Package (macOS)
         if: matrix.os == 'macos-latest'
-        run: pnpm build:mac
+        run: pnpm exec electron-builder --mac --publish ${{ env.PUBLISH }}
         env:
-          GH_TOKEN: ${{ github.event_name == 'push' && secrets.GITHUB_TOKEN || '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -74,9 +107,31 @@ jobs:
           path: |
             dist/*.AppImage
             dist/*.deb
+            dist/*.rpm
             dist/*.exe
             dist/*.dmg
             dist/*.zip
             dist/latest*.yml
           if-no-files-found: warn
           retention-days: 14
+
+  # 3 OS 빌드가 모두 성공한 뒤 electron-builder 가 만들어 둔 draft 를 정식 공개로 승격.
+  # tag push 일 때만 실행 (workflow_dispatch dry-run 은 자산이 GitHub 에 안 올라가므로 의미 없음).
+  # rc/beta/alpha 가 태그명에 들어 있으면 prerelease 로 표시.
+  publish:
+    name: Publish release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Promote draft → published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$TAG" =~ -(rc|beta|alpha) ]]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
