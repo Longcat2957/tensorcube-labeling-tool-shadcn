@@ -5,3 +5,8 @@ out
 .eslintcache
 *.log*
 .claude/settings.local.json
+
+# SAM ONNX 모델은 resources/sam-models-parts/ 에 5MB 청크로 커밋되고
+# postinstall 의 scripts/sam-assemble.mjs 가 resources/sam-models/ 에 재조립한다.
+# 따라서 합쳐진 .onnx 자체는 git 에 안 올린다.
+resources/sam-models/*.onnx

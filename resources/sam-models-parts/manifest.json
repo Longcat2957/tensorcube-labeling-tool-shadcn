@@ -1,0 +1,17 @@
+{
+  "chunkSize": 5242880,
+  "files": [
+    {
+      "filename": "sam2.1_hiera_tiny.encoder.onnx",
+      "size": 134261316,
+      "sha256": "cd33c8adb99703cb3a14d7946bb4e0bf87d8a875ac76234eebaad9de88bcb013",
+      "chunks": 26
+    },
+    {
+      "filename": "sam2.1_hiera_tiny.decoder.onnx",
+      "size": 20640923,
+      "sha256": "664c87ecb48973895d632deedaa13157e4ff9be70026e2c27be59afd4dd99c27",
+      "chunks": 4
+    }
+  ]
+}
